@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- 地球主體 - 使用綠色並增大尺寸 -->
+  <circle cx="256" cy="256" r="230" fill="none" stroke="#00AA55" stroke-width="32"/>
+  
+  <!-- 簡化的經線 - 只保留最主要的 -->
+  <path d="M256,26 L256,486" stroke="#00AA55" stroke-width="24" fill="none"/>
+  
+  <!-- 簡化的緯線 - 只保留中間的一條 -->
+  <ellipse cx="256" cy="256" rx="230" ry="90" stroke="#00AA55" stroke-width="30" fill="none"/>
+  
+  <!-- 代理連接箭頭 - 使用綠色並增大尺寸 -->
+  <path d="M100,100 L170,170" stroke="#00AA55" stroke-width="28" fill="none"/>
+  <polygon points="190,190 130,170 170,130" fill="#00AA55"/>
+</svg> 
