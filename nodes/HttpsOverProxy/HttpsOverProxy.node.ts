@@ -1088,13 +1088,16 @@ export class HttpsOverProxy implements INodeType {
 							
 							const httpsProxyAgent = new HttpsProxyAgent(proxyUrl, {
 								rejectUnauthorized: !allowUnauthorizedCerts,
+								timeout: options.timeout || 30000,
 							});
 							
 							// 將代理 agent 應用於請求
 							requestOptions.httpsAgent = httpsProxyAgent;
 						} else {
 							// 使用 HTTP 代理
-							const httpAgent = new http.Agent();
+							const httpAgent = new http.Agent({
+								timeout: options.timeout || 30000,
+							});
 							
 							// 設置代理
 							requestOptions.proxy = {
@@ -1109,6 +1112,7 @@ export class HttpsOverProxy implements INodeType {
 						// 如果沒有使用代理，但需要忽略SSL問題
 						requestOptions.httpsAgent = new https.Agent({
 							rejectUnauthorized: !allowUnauthorizedCerts,
+							timeout: options.timeout || 30000,
 						});
 					}
 					
@@ -1128,7 +1132,16 @@ export class HttpsOverProxy implements INodeType {
 					}
 					
 					// Make the request
-					const response = await axios(requestOptions);
+					const response = await Promise.race([
+						axios(requestOptions),
+						new Promise<never>((_, reject) => {
+							// 強制超時機制，確保即使底層連接沒有超時，也會在指定時間內終止請求
+							const timeoutMs = options.timeout || 30000;
+							setTimeout(() => {
+								reject(new Error(`請求強制超時：${timeoutMs}毫秒內未完成。這是由節點設置的強制超時機制觸發的，而不是由底層HTTP客戶端觸發的。`));
+							}, timeoutMs);
+						})
+					]);
 					
 					// Process the response
 					let responseData;
