@@ -838,7 +838,7 @@ export class HttpsOverProxy implements INodeType {
 							const proxyUrlObj = new URL(proxySettings.proxyUrl);
 							proxyHost = proxyUrlObj.hostname;
 							proxyPort = parseInt(proxyUrlObj.port || '8080', 10);
-						} catch (error) {
+						} catch (_error) {
 							// 如果 URL 解析失敗，嘗試直接分割
 							const urlParts = proxySettings.proxyUrl.split(':');
 							if (urlParts.length === 2) {
@@ -899,7 +899,9 @@ export class HttpsOverProxy implements INodeType {
 						const customError = timeoutError as Error & { code: string };
 						customError.code = 'TIMEOUT'; // 使用自定義錯誤代碼
 						
-						// @ts-ignore - AbortController.abort() 不接受參數，但我們需要傳遞原因
+						// 在 Node.js 中，AbortController.abort() 標準上不接受參數，但我們需要自定義錯誤
+						// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+						// @ts-ignore
 						controller.abort(customError); // 在 abort 時傳遞自定義錯誤
 					}, timeoutMs);
 					
@@ -1113,7 +1115,8 @@ export class HttpsOverProxy implements INodeType {
 							// 注意：這是關鍵！即使代理配置正確，也需要確保目標服務器的證書驗證與選項一致
 							
 							// 將這些選項應用到底層 HTTPS 模組，確保所有 HTTPS 請求都使用相同的 SSL 驗證設定
-							// @ts-ignore - 特意覆蓋全域 HTTPS 設定
+							// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+							// @ts-ignore
 							process.env.NODE_TLS_REJECT_UNAUTHORIZED = allowUnauthorizedCerts ? '0' : '1';
 						} else {
 							// 使用 HTTP 代理
@@ -1275,7 +1278,7 @@ export class HttpsOverProxy implements INodeType {
 								const errorProxyUrlObj = new URL(proxyUrl.startsWith('http') ? proxyUrl : `http://${proxyUrl}`);
 								errorProxyHost = errorProxyUrlObj.hostname;
 								errorProxyPort = parseInt(errorProxyUrlObj.port || '8080', 10);
-							} catch (parseError) {
+							} catch (_parseError) {
 								// 解析失敗時嘗試簡單分割
 								const parts = proxyUrl.split(':');
 								if (parts.length >= 2) {
