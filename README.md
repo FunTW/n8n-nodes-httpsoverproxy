@@ -51,12 +51,7 @@ After installation, you can find the "HTTPS Over Proxy" node in the n8n nodes pa
 
 ### Advanced Options
 
-- **Timeout**: Increase this value if your proxy or target website is slow
-- **Allow Unauthorized Certificates**: Enable to ignore SSL certificate validation issues
-- **Batching**: Configure batch size and interval for processing multiple requests
 - **Allow Internal Network Access**: Enable to allow requests to internal network addresses (disabled by default for security)
-- **Full Response**: Return complete response data including headers and status code
-- **Response Format**: Choose between autodetect, JSON, text, or file
 
 ## Security Features
 
@@ -64,14 +59,6 @@ After installation, you can find the "HTTPS Over Proxy" node in the n8n nodes pa
 - Restricted internal network access (localhost, 127.0.0.1, etc.) by default
 - Secure proxy authentication handling
 
-## Troubleshooting
-
-### Common Issues
-
-1. **Connection Refused**: Verify that the proxy server is running and the port is correct
-2. **Timeout Errors**: Increase the timeout value in the options
-3. **SSL Certificate Errors**: Enable "Allow Unauthorized Certificates" if you trust the target site
-4. **Proxy Format Errors**: Make sure not to include http:// or https:// in the proxy host field
 
 ## License
 

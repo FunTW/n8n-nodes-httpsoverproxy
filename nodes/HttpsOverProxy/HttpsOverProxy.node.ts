@@ -526,49 +526,19 @@ export class HttpsOverProxy implements INodeType {
 								displayName: 'Settings',
 								values: [
 									{
-										displayName: 'Use Proxy',
-										name: 'useProxy',
-										type: 'boolean',
-										default: true,
-										description: 'Whether to use a proxy server',
-									},
-									{
-										displayName: 'Proxy Host',
-										name: 'proxyHost',
+										displayName: 'Proxy URL',
+										name: 'proxyUrl',
 										type: 'string',
-										displayOptions: {
-											show: {
-												useProxy: [true],
-											},
-										},
 										default: '',
-										placeholder: 'localhost',
-										description:
-											'Proxy Host (without http:// or https://)',
-									},
-									{
-										displayName: 'Proxy Port',
-										name: 'proxyPort',
-										type: 'number',
-										displayOptions: {
-											show: {
-												useProxy: [true],
-											},
-										},
-										default: 8080,
-										description: 'Proxy Port',
+										placeholder: 'http://myproxy:3128',
+										description: '代理伺服器網址，格式為 http://主機名:埠號，如 http://myproxy:3128',
 									},
 									{
 										displayName: 'Proxy Authentication',
 										name: 'proxyAuth',
 										type: 'boolean',
-										displayOptions: {
-											show: {
-												useProxy: [true],
-											},
-										},
 										default: false,
-										description: 'Whether the proxy requires authentication',
+										description: '代理伺服器是否需要身份驗證',
 									},
 									{
 										displayName: 'Proxy Username',
@@ -576,12 +546,11 @@ export class HttpsOverProxy implements INodeType {
 										type: 'string',
 										displayOptions: {
 											show: {
-												useProxy: [true],
 												proxyAuth: [true],
 											},
 										},
 										default: '',
-										description: 'Username for proxy authentication',
+										description: '代理身份驗證的用戶名',
 									},
 									{
 										displayName: 'Proxy Password',
@@ -589,19 +558,18 @@ export class HttpsOverProxy implements INodeType {
 										type: 'string',
 										displayOptions: {
 											show: {
-												useProxy: [true],
 												proxyAuth: [true],
 											},
 										},
 										default: '',
-										description: 'Password for proxy authentication',
+										description: '代理身份驗證的密碼',
 									},
 								],
 							},
 						],
 					},
 					{
-						displayName: 'Allow Unauthorized Certificates',
+						displayName: 'Ignore SSL Issues (Insecure)',
 						name: 'allowUnauthorizedCerts',
 						type: 'boolean',
 						default: false,
@@ -837,23 +805,54 @@ export class HttpsOverProxy implements INodeType {
 			const endIndex = Math.min(startIndex + batchSize, items.length);
 			
 			for (let itemIndex = startIndex; itemIndex < endIndex; itemIndex++) {
+				// 宣告 timeoutId 變數，確保在整個函數區塊內可用
+				let timeoutId: NodeJS.Timeout | undefined;
+				
 				try {
 					// 檢查代理設置是否存在
 					const proxySettings = this.getNodeParameter('options.proxy.settings', itemIndex, null) as {
-						useProxy?: boolean;
-						proxyHost?: string;
-						proxyPort?: number;
+						proxyUrl?: string;
 						proxyAuth?: boolean;
 						proxyUsername?: string;
 						proxyPassword?: string;
 					} | null;
 					
-					if (proxySettings && proxySettings.useProxy && (!proxySettings.proxyHost || !proxySettings.proxyPort)) {
+					// 檢查是否有代理設定
+					const useProxy = !!(proxySettings && proxySettings.proxyUrl && proxySettings.proxyUrl.trim() !== '');
+					
+					if (useProxy && (!proxySettings?.proxyUrl)) {
 						throw new NodeOperationError(
 							this.getNode(),
-							'When using a proxy, both host and port must be provided. Please configure the proxy settings in the Options section.',
+							'使用代理時，必須提供有效的代理 URL。格式為 http://myproxy:3128',
 							{ itemIndex },
 						);
+					}
+					
+					// 處理代理 URL
+					let proxyHost = '';
+					let proxyPort = 8080; // 預設埠號
+					
+					if (useProxy && proxySettings?.proxyUrl) {
+						try {
+							// 嘗試解析代理 URL
+							const proxyUrlObj = new URL(proxySettings.proxyUrl);
+							proxyHost = proxyUrlObj.hostname;
+							proxyPort = parseInt(proxyUrlObj.port || '8080', 10);
+						} catch (error) {
+							// 如果 URL 解析失敗，嘗試直接分割
+							const urlParts = proxySettings.proxyUrl.split(':');
+							if (urlParts.length === 2) {
+								proxyHost = urlParts[0];
+								proxyPort = parseInt(urlParts[1], 10) || 8080;
+							} else {
+								// 不正確的格式
+								throw new NodeOperationError(
+									this.getNode(),
+									`代理 URL 格式不正確: ${proxySettings.proxyUrl}。正確格式應為 http://myproxy:3128 或 myproxy:3128`,
+									{ itemIndex },
+								);
+							}
+						}
 					}
 					
 					// Get parameters for current item
@@ -874,8 +873,8 @@ export class HttpsOverProxy implements INodeType {
 					
 					// 移除代理主機中可能的協議前綴
 					let cleanProxyHost = '';
-					if (proxySettings && proxySettings.proxyHost) {
-						cleanProxyHost = proxySettings.proxyHost.replace(/^(http|https):\/\//, '');
+					if (proxyHost) {
+						cleanProxyHost = proxyHost.replace(/^(http|https):\/\//, '');
 					}
 					
 					// Build request options
@@ -887,17 +886,32 @@ export class HttpsOverProxy implements INodeType {
 						proxy: false, // 禁用 axios 內建代理處理
 					};
 					
+					// 使用 AbortController 來控制超時
+					const controller = new AbortController();
+					requestOptions.signal = controller.signal;
+					
+					// 設定超時計時器
+					const timeoutMs = options.timeout || 30000;
+					timeoutId = setTimeout(() => {
+						// 修改：取消時添加自定義錯誤訊息
+						const timeoutError = new Error(`請求因超時(${timeoutMs}ms)被取消。這是由節點的超時設定觸發的。如果您需要更多時間來完成請求，請增加超時設定值。`);
+						// 使用接口擴展錯誤
+						const customError = timeoutError as Error & { code: string };
+						customError.code = 'TIMEOUT'; // 使用自定義錯誤代碼
+						
+						// @ts-ignore - AbortController.abort() 不接受參數，但我們需要傳遞原因
+						controller.abort(customError); // 在 abort 時傳遞自定義錯誤
+					}, timeoutMs);
+					
 					// Proxy authentication if needed
 					let proxyAuthHeader = '';
-					let proxyAuth = '';
-					if (proxySettings && proxySettings.proxyAuth) {
+					if (useProxy && proxySettings?.proxyAuth) {
 						if (proxySettings.proxyUsername && proxySettings.proxyPassword) {
 							// 使用更安全的方式處理密碼 - 避免直接在字符串中暴露密碼
 							const username = String(proxySettings.proxyUsername);
 							const password = String(proxySettings.proxyPassword);
 							const auth = Buffer.from(`${username}:${password}`).toString('base64');
 							proxyAuthHeader = `Basic ${auth}`;
-							proxyAuth = `${username}:${password}`;
 							
 							// 使用後立即清除密碼變量
 							// 注意：這不能完全防止密碼在內存中的存在，但可以減少暴露時間
@@ -1078,14 +1092,15 @@ export class HttpsOverProxy implements INodeType {
 					const allowUnauthorizedCerts = options.allowUnauthorizedCerts || false;
 					
 					// 只有在啟用代理時才使用代理
-					if (proxySettings && proxySettings.useProxy && cleanProxyHost) {
+					if (useProxy && cleanProxyHost) {
 						// 配置 HTTPS 代理
 						if (url.startsWith('https:')) {
 							// 使用 https-proxy-agent 處理 HTTPS over HTTP 代理的問題
-							const proxyUrl = proxyAuth 
-								? `http://${proxySettings.proxyUsername}:${proxySettings.proxyPassword}@${cleanProxyHost}:${proxySettings.proxyPort || 8080}`
-								: `http://${cleanProxyHost}:${proxySettings.proxyPort || 8080}`;
+							const proxyUrl = proxySettings?.proxyAuth && proxySettings.proxyUsername && proxySettings.proxyPassword
+								? `http://${proxySettings.proxyUsername}:${proxySettings.proxyPassword}@${cleanProxyHost}:${proxyPort}`
+								: `http://${cleanProxyHost}:${proxyPort}`;
 							
+							// 修改：確保 rejectUnauthorized 選項能正確應用於代理
 							const httpsProxyAgent = new HttpsProxyAgent(proxyUrl, {
 								rejectUnauthorized: !allowUnauthorizedCerts,
 								timeout: options.timeout || 30000,
@@ -1093,6 +1108,13 @@ export class HttpsOverProxy implements INodeType {
 							
 							// 將代理 agent 應用於請求
 							requestOptions.httpsAgent = httpsProxyAgent;
+							
+							// 同時也設定目標服務器的 SSL 驗證選項
+							// 注意：這是關鍵！即使代理配置正確，也需要確保目標服務器的證書驗證與選項一致
+							
+							// 將這些選項應用到底層 HTTPS 模組，確保所有 HTTPS 請求都使用相同的 SSL 驗證設定
+							// @ts-ignore - 特意覆蓋全域 HTTPS 設定
+							process.env.NODE_TLS_REJECT_UNAUTHORIZED = allowUnauthorizedCerts ? '0' : '1';
 						} else {
 							// 使用 HTTP 代理
 							const httpAgent = new http.Agent({
@@ -1102,7 +1124,7 @@ export class HttpsOverProxy implements INodeType {
 							// 設置代理
 							requestOptions.proxy = {
 								host: cleanProxyHost,
-								port: proxySettings.proxyPort || 8080,
+								port: proxyPort,
 								protocol: 'http:',
 							};
 							
@@ -1132,16 +1154,12 @@ export class HttpsOverProxy implements INodeType {
 					}
 					
 					// Make the request
-					const response = await Promise.race([
-						axios(requestOptions),
-						new Promise<never>((_, reject) => {
-							// 強制超時機制，確保即使底層連接沒有超時，也會在指定時間內終止請求
-							const timeoutMs = options.timeout || 30000;
-							setTimeout(() => {
-								reject(new Error(`請求強制超時：${timeoutMs}毫秒內未完成。這是由節點設置的強制超時機制觸發的，而不是由底層HTTP客戶端觸發的。`));
-							}, timeoutMs);
-						})
-					]);
+					const response = await axios(requestOptions);
+					
+					// 清除超時計時器
+					if (timeoutId) {
+						clearTimeout(timeoutId);
+					}
 					
 					// Process the response
 					let responseData;
@@ -1207,24 +1225,76 @@ export class HttpsOverProxy implements INodeType {
 					if (this.continueOnFail()) {
 						let errorMessage = error.message;
 						
+						// 特別處理 "canceled" 錯誤
+						if (errorMessage === 'canceled' || error.code === 'ERR_CANCELED') {
+							const currentOptions = this.getNodeParameter('options', itemIndex, {}) as {
+								timeout?: number;
+							};
+							const timeout = currentOptions.timeout || 30000;
+							
+							// 修改：不要在這裡使用 "canceled" 作為錯誤訊息，而是直接提供詳細的超時解釋
+							errorMessage = `請求因超時(${timeout}ms)被取消。這是由節點的超時設定觸發的。如果您需要更多時間來完成請求，請增加超時設定值。`;
+							error.message = errorMessage; // 替換原始錯誤的訊息
+							error.code = 'TIMEOUT'; // 重新設定錯誤代碼為 TIMEOUT
+							
+							// 創建帶有更詳細超時訊息的錯誤對象
+							const safeErrorResponse = {
+								errorMessage: errorMessage, // 修改：使用更明確的屬性名稱
+								error: errorMessage, // 保持兼容性
+								code: 'TIMEOUT',
+								request: error.config ? {
+									url: error.config.url,
+									method: error.config.method,
+									timeout: error.config.timeout
+								} : undefined
+							};
+							
+							returnData.push({
+								json: safeErrorResponse,
+								pairedItem: { item: itemIndex },
+							});
+							continue;
+						}
+						
 						// 提供更詳細的錯誤信息
 						if (errorMessage.includes('tunneling socket could not be established')) {
-							const proxySettings = this.getNodeParameter('options.proxy.settings', itemIndex, {}) as {
-								proxyHost?: string;
-								proxyPort?: number;
+							// 重新獲取代理設定以處理錯誤
+							const errorProxySettings = this.getNodeParameter('options.proxy.settings', itemIndex, {}) as {
+								proxyUrl?: string;
+								proxyAuth?: boolean;
+								proxyUsername?: string;
+								proxyPassword?: string;
 							};
-							const proxyHost = proxySettings?.proxyHost || '';
-							const proxyPort = proxySettings?.proxyPort || 0;
+							
+							const proxyUrl = errorProxySettings?.proxyUrl || '';
+							let errorProxyHost = '';
+							let errorProxyPort = 8080;
+							
+							// 嘗試解析代理 URL
+							try {
+								const errorProxyUrlObj = new URL(proxyUrl.startsWith('http') ? proxyUrl : `http://${proxyUrl}`);
+								errorProxyHost = errorProxyUrlObj.hostname;
+								errorProxyPort = parseInt(errorProxyUrlObj.port || '8080', 10);
+							} catch (parseError) {
+								// 解析失敗時嘗試簡單分割
+								const parts = proxyUrl.split(':');
+								if (parts.length >= 2) {
+									errorProxyHost = parts[0];
+									errorProxyPort = parseInt(parts[1], 10) || 8080;
+								} else {
+									errorProxyHost = proxyUrl;
+								}
+							}
 							
 							// 檢測代理地址格式錯誤
-							if (proxyHost.startsWith('http://') || proxyHost.startsWith('https://')) {
-								errorMessage = `代理地址格式錯誤：請不要在代理主機地址中包含協議前綴 (http:// 或 https://)。正確格式應為 "${proxyHost.replace(/^(http|https):\/\//, '')}"，而不是 "${proxyHost}"。`;
+							if (!proxyUrl.includes(':')) {
+								errorMessage = `代理地址格式錯誤：缺少端口號。正確格式應為 "myproxy:3128" 或 "http://myproxy:3128"。`;
 							} else if (errorMessage.includes('ENOTFOUND')) {
-								errorMessage = `無法連接到代理服務器：找不到主機 "${proxyHost}"。請檢查代理地址是否正確，或嘗試使用IP地址替代域名。`;
+								errorMessage = `無法連接到代理服務器：找不到主機 "${errorProxyHost}"。請檢查代理地址是否正確，或嘗試使用IP地址替代域名。`;
 							} else if (errorMessage.includes('ECONNREFUSED')) {
-								errorMessage = `代理服務器連接被拒絕：${proxyHost}:${proxyPort}。請確認代理服務器正在運行且端口號正確。`;
+								errorMessage = `代理服務器連接被拒絕：${errorProxyHost}:${errorProxyPort}。請確認代理服務器正在運行且端口號正確。`;
 							} else if (errorMessage.includes('ETIMEDOUT')) {
-								errorMessage = `連接代理服務器超時：${proxyHost}:${proxyPort}。請檢查網絡連接或代理服務器是否可用。`;
+								errorMessage = `連接代理服務器超時：${errorProxyHost}:${errorProxyPort}。請檢查網絡連接或代理服務器是否可用。`;
 							}
 						} else if (errorMessage.includes('timeout') && error.code === 'ECONNABORTED') {
 							// 獲取當前的超時設置
@@ -1235,8 +1305,9 @@ export class HttpsOverProxy implements INodeType {
 							errorMessage = `請求超時：${timeout}毫秒內未收到回應。請檢查網絡連接、代理服務器和目標網站是否正常，或增加超時時間。`;
 						} else if (errorMessage.includes('ECONNRESET')) {
 							errorMessage = `連接被重置：服務器可能關閉了連接。請檢查目標服務器是否正常運行。`;
-						} else if (errorMessage.includes('certificate')) {
-							errorMessage = `SSL證書錯誤：${errorMessage}。如果您信任此網站，可以在選項中啟用"忽略SSL問題"。`;
+						} else if (errorMessage.includes('certificate') || errorMessage.includes('self-signed')) {
+							// 更明確的 SSL 證書錯誤訊息，提醒使用者啟用 "Ignore SSL Issues (Insecure)" 選項
+							errorMessage = `SSL 證書錯誤：${errorMessage}\n\n【解決方法】請在節點的選項中啟用 "Ignore SSL Issues (Insecure)" 開關來忽略 SSL 證書問題。\n\n注意：這會降低連接安全性，僅建議在信任的環境中使用。`;
 						}
 						
 						// 創建安全的錯誤對象，避免暴露敏感信息
@@ -1271,6 +1342,23 @@ export class HttpsOverProxy implements INodeType {
 						});
 						continue;
 					}
+					
+					// 修改：如果是 canceled 錯誤，替換為更詳細的訊息後再拋出
+					if (error.message === 'canceled' || error.code === 'ERR_CANCELED') {
+						const currentOptions = this.getNodeParameter('options', itemIndex, {}) as {
+							timeout?: number;
+						};
+						const timeout = currentOptions.timeout || 30000;
+						const detailedMessage = `請求因超時(${timeout}ms)被取消。這是由節點的超時設定觸發的。如果您需要更多時間來完成請求，請增加超時設定值。`;
+						throw new NodeOperationError(this.getNode(), detailedMessage, { itemIndex });
+					}
+					
+					// 特別處理 SSL 證書錯誤
+					if (error.message.includes('certificate') || error.message.includes('self-signed')) {
+						const sslErrorMessage = `SSL 證書錯誤：${error.message}\n\n【解決方法】請在節點的選項中啟用 "Ignore SSL Issues (Insecure)" 開關來忽略 SSL 證書問題。\n\n注意：這會降低連接安全性，僅建議在信任的環境中使用。`;
+						throw new NodeOperationError(this.getNode(), sslErrorMessage, { itemIndex });
+					}
+					
 					throw new NodeOperationError(this.getNode(), error, { itemIndex });
 				}
 			}
