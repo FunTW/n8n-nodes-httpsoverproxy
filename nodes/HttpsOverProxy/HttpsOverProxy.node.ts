@@ -1351,7 +1351,12 @@ export class HttpsOverProxy implements INodeType {
 							data: responseData,
 						};
 					} else {
-						executionData = responseData;
+						// 如果 responseData 是字串，包成 { data: responseData }
+						if (typeof responseData === 'string') {
+							executionData = { data: responseData };
+						} else {
+							executionData = responseData;
+						}
 					}
 					
 					// Add the response to the returned items
