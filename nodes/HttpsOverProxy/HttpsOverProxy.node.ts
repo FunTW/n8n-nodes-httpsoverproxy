@@ -10,6 +10,7 @@ import axios, { AxiosRequestConfig } from 'axios';
 import * as https from 'https';
 import * as http from 'http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { IDataObject } from 'n8n-workflow';
 
 export class HttpsOverProxy implements INodeType {
 	description: INodeTypeDescription = {
@@ -82,6 +83,12 @@ export class HttpsOverProxy implements INodeType {
 			},
 		],
 		properties: [
+			{
+				displayName: '',
+				name: 'curlImport',
+				type: 'curlImport',
+				default: '',
+			},
 			{
 				displayName: 'Method',
 				name: 'method',
@@ -249,10 +256,94 @@ export class HttpsOverProxy implements INodeType {
 				default: '',
 			},
 			{
+				displayName: 'Send Headers',
+				name: 'sendHeaders',
+				type: 'boolean',
+				default: false,
+				description: 'Whether the request has headers or not',
+			},
+			{
+				displayName: 'Specify Headers',
+				name: 'specifyHeaders',
+				type: 'options',
+				displayOptions: {
+					show: {
+						sendHeaders: [true],
+					},
+				},
+				options: [
+					{
+						name: 'Using Fields Below',
+						value: 'keypair',
+					},
+					{
+						name: 'Using JSON',
+						value: 'json',
+					},
+				],
+				default: 'keypair',
+			},
+			{
+				displayName: 'Headers',
+				name: 'headerParameters',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				displayOptions: {
+					show: {
+						sendHeaders: [true],
+						specifyHeaders: ['keypair'],
+					},
+				},
+				placeholder: 'Add Header',
+				default: {
+					parameters: [
+						{
+							name: '',
+							value: '',
+						},
+					],
+				},
+				options: [
+					{
+						name: 'parameters',
+						displayName: 'Header',
+						values: [
+							{
+								displayName: 'Name',
+								name: 'name',
+								type: 'string',
+								default: '',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+							},
+						],
+					},
+				],
+			},
+			{
+				displayName: 'Headers (JSON)',
+				name: 'headersJson',
+				type: 'json',
+				displayOptions: {
+					show: {
+						sendHeaders: [true],
+						specifyHeaders: ['json'],
+					},
+				},
+				default: '{\n}',
+				description: 'Headers as JSON object',
+			},
+			{
 				displayName: 'Send Body',
 				name: 'sendBody',
 				type: 'boolean',
-				default: true,
+				default: false,
 				description: 'Whether the request has a body or not',
 			},
 			{
@@ -266,15 +357,15 @@ export class HttpsOverProxy implements INodeType {
 				},
 				options: [
 					{
-						name: 'JSON',
-						value: 'json',
-					},
-					{
 						name: 'Form-Urlencoded',
 						value: 'form-urlencoded',
 					},
 					{
-						name: 'Form-Data (Multipart)',
+						name: 'JSON',
+						value: 'json',
+					},
+					{
+						name: 'Multipart Form-Data',
 						value: 'multipart-form-data',
 					},
 					{
@@ -283,7 +374,7 @@ export class HttpsOverProxy implements INodeType {
 					},
 				],
 				default: 'json',
-				description: 'Content-Type to use to send body parameters',
+				description: 'Content-Type to use for the request',
 			},
 			{
 				displayName: 'Specify Body',
@@ -362,7 +453,22 @@ export class HttpsOverProxy implements INodeType {
 						specifyBody: ['json'],
 					},
 				},
+				default: '{\n}',
+				description: 'Body parameters as JSON object',
+			},
+			{
+				displayName: 'Raw Content Type',
+				name: 'rawContentType',
+				type: 'string',
+				displayOptions: {
+					show: {
+						sendBody: [true],
+						contentType: ['raw'],
+					},
+				},
 				default: '',
+				placeholder: 'text/plain',
+				description: 'Content-Type to use for the raw body',
 			},
 			{
 				displayName: 'Body',
@@ -375,90 +481,7 @@ export class HttpsOverProxy implements INodeType {
 					},
 				},
 				default: '',
-				description: 'The raw body to send',
-			},
-			{
-				displayName: 'Send Headers',
-				name: 'sendHeaders',
-				type: 'boolean',
-				default: false,
-				description: 'Whether the request has headers or not',
-			},
-			{
-				displayName: 'Specify Headers',
-				name: 'specifyHeaders',
-				type: 'options',
-				displayOptions: {
-					show: {
-						sendHeaders: [true],
-					},
-				},
-				options: [
-					{
-						name: 'Using Fields Below',
-						value: 'keypair',
-					},
-					{
-						name: 'Using JSON',
-						value: 'json',
-					},
-				],
-				default: 'keypair',
-			},
-			{
-				displayName: 'Headers',
-				name: 'headers',
-				type: 'fixedCollection',
-				typeOptions: {
-					multipleValues: true,
-				},
-				displayOptions: {
-					show: {
-						sendHeaders: [true],
-						specifyHeaders: ['keypair'],
-					},
-				},
-				placeholder: 'Add Header',
-				default: {
-					parameters: [
-						{
-							name: '',
-							value: '',
-						},
-					],
-				},
-				options: [
-					{
-						name: 'parameters',
-						displayName: 'Header',
-						values: [
-							{
-								displayName: 'Name',
-								name: 'name',
-								type: 'string',
-								default: '',
-							},
-							{
-								displayName: 'Value',
-								name: 'value',
-								type: 'string',
-								default: '',
-							},
-						],
-					},
-				],
-			},
-			{
-				displayName: 'Headers (JSON)',
-				name: 'headersJson',
-				type: 'json',
-				displayOptions: {
-					show: {
-						sendHeaders: [true],
-						specifyHeaders: ['json'],
-					},
-				},
-				default: '',
+				description: 'The body of the request',
 			},
 			{
 				displayName: 'Options',
@@ -794,6 +817,72 @@ export class HttpsOverProxy implements INodeType {
 		const items = this.getInputData();
 		const returnItems: INodeExecutionData[] = [];
 
+		// 添加調試日誌，檢查節點參數
+		try {
+			console.log('===== HTTPS Over Proxy 節點執行 =====');
+			
+			// 檢查 Method 和 URL
+			const method = this.getNodeParameter('method', 0) as string;
+			const url = this.getNodeParameter('url', 0) as string;
+			console.log('Method:', method);
+			console.log('URL:', url);
+			
+			// 檢查 Headers
+			const sendHeaders = this.getNodeParameter('sendHeaders', 0, false) as boolean;
+			console.log('Send Headers:', sendHeaders);
+			
+			if (sendHeaders) {
+				try {
+					const specifyHeaders = this.getNodeParameter('specifyHeaders', 0, 'keypair') as string;
+					console.log('Specify Headers:', specifyHeaders);
+					
+					if (specifyHeaders === 'keypair') {
+						const headerParameters = this.getNodeParameter('headerParameters.parameters', 0, []) as Array<{ name: string; value: string }>;
+						console.log('Header Parameters:', JSON.stringify(headerParameters, null, 2));
+					} else {
+						const headersJson = this.getNodeParameter('headersJson', 0, '{}') as string;
+						console.log('Headers JSON:', headersJson);
+					}
+				} catch (e) {
+					console.log('Error getting header parameters:', e.message);
+				}
+			}
+			
+			// 檢查 Body
+			const sendBody = this.getNodeParameter('sendBody', 0, false) as boolean;
+			console.log('Send Body:', sendBody);
+			
+			if (sendBody) {
+				try {
+					const contentType = this.getNodeParameter('contentType', 0, 'json') as string;
+					console.log('Content Type:', contentType);
+					
+					if (contentType === 'json' || contentType === 'form-urlencoded') {
+						const specifyBody = this.getNodeParameter('specifyBody', 0, 'keypair') as string;
+						console.log('Specify Body:', specifyBody);
+						
+						if (specifyBody === 'keypair') {
+							const bodyParameters = this.getNodeParameter('bodyParameters.parameters', 0, []) as Array<{ name: string; value: string }>;
+							console.log('Body Parameters:', JSON.stringify(bodyParameters, null, 2));
+						} else {
+							const bodyJson = this.getNodeParameter('bodyParametersJson', 0, '{}') as string;
+							console.log('Body JSON:', bodyJson);
+						}
+					}
+				} catch (e) {
+					console.log('Error getting body parameters:', e.message);
+				}
+			}
+		} catch (e) {
+			console.log('Error in debug section:', e.message);
+		}
+		
+		// 處理 cURL 導入
+		// 注意：cURL 導入功能是在 n8n 前端處理的
+		// 當用戶導入 cURL 命令時，前端會將命令解析為相應的參數，然後設置到節點的參數中
+		// 這些參數會在執行時自動被獲取，例如 this.getNodeParameter('method', itemIndex)
+		// 所以我們不需要在這裡額外處理 cURL 導入的參數
+
 		// batching
 		const batchSize = this.getNodeParameter('options.batching.batch.batchSize', 0, 1) as number;
 		const batchInterval = this.getNodeParameter('options.batching.batch.batchInterval', 0, 0) as number;
@@ -963,7 +1052,22 @@ export class HttpsOverProxy implements INodeType {
 					if (sendQuery) {
 						const specifyQuery = this.getNodeParameter('specifyQuery', itemIndex, 'keypair') as string;
 						if (specifyQuery === 'keypair') {
-							const queryParameters = this.getNodeParameter('queryParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
+							let queryParameters: Array<{ name: string; value: string }> = [];
+							try {
+								queryParameters = this.getNodeParameter('queryParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
+							} catch (_e) {
+								// 如果上面的路徑不存在，嘗試使用 queryParameters 參數
+								try {
+									const queryParams = this.getNodeParameter('queryParameters', itemIndex, {}) as { parameters?: Array<{ name: string; value: string }> };
+									if (queryParams && queryParams.parameters) {
+										queryParameters = queryParams.parameters;
+									}
+								} catch (_e2) {
+									// eslint 要求未使用的錯誤變數要用 _e 命名
+									// 如果兩種方式都失敗，使用空陣列
+									queryParameters = [];
+								}
+							}
 							if (queryParameters.length) {
 								const queryParams: Record<string, string> = {};
 								for (const parameter of queryParameters) {
@@ -979,7 +1083,7 @@ export class HttpsOverProxy implements INodeType {
 							const queryJson = this.getNodeParameter('queryParametersJson', itemIndex, '{}') as string;
 							try {
 								requestOptions.params = JSON.parse(queryJson);
-							} catch (_error) {
+							} catch (_e) {
 								throw new NodeOperationError(this.getNode(), 'Query Parameters (JSON) must be a valid JSON object', { itemIndex });
 							}
 						}
@@ -994,13 +1098,18 @@ export class HttpsOverProxy implements INodeType {
 						const specifyHeaders = this.getNodeParameter('specifyHeaders', itemIndex, 'keypair') as string;
 						
 						if (specifyHeaders === 'keypair') {
-							const headerParameters = this.getNodeParameter('headers.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
-							for (const header of headerParameters) {
-								// 確保標頭名稱不為空
-								if (header.name && header.name.trim() !== '') {
-									const headerName = lowercaseHeaders ? header.name.toLowerCase() : header.name;
-									headers[headerName] = header.value;
+							// 直接使用 headerParameters.parameters 路徑
+							try {
+								const headerParameters = this.getNodeParameter('headerParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
+								for (const header of headerParameters) {
+									// 確保標頭名稱不為空
+									if (header.name && header.name.trim() !== '') {
+										const headerName = lowercaseHeaders ? header.name.toLowerCase() : header.name;
+										headers[headerName] = header.value;
+									}
 								}
+							} catch (_e) {
+								// 錯誤處理
 							}
 						} else {
 							// JSON headers
@@ -1014,7 +1123,7 @@ export class HttpsOverProxy implements INodeType {
 										headers[headerName] = parsedHeaders[key];
 									}
 								}
-							} catch (_error) {
+							} catch (_e) {
 								throw new NodeOperationError(this.getNode(), 'Headers (JSON) must be a valid JSON object', { itemIndex });
 							}
 						}
@@ -1028,7 +1137,8 @@ export class HttpsOverProxy implements INodeType {
 					requestOptions.headers = headers;
 					
 					// Handle body parameters if needed
-					if (this.getNodeParameter('sendBody', itemIndex, true) as boolean) {
+					let body: IDataObject | Buffer | undefined;
+					if (this.getNodeParameter('sendBody', itemIndex, false) as boolean) {
 						
 						const contentType = this.getNodeParameter('contentType', itemIndex, 'json') as string;
 						
@@ -1042,50 +1152,71 @@ export class HttpsOverProxy implements INodeType {
 							}
 							
 							if (specifyBody === 'keypair') {
-								const bodyParameters = this.getNodeParameter('bodyParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
-								
-								if (bodyParameters.length) {
-									const bodyParams: Record<string, string> = {};
-									for (const parameter of bodyParameters) {
-										// 確保參數名稱不為空
-										if (parameter.name && parameter.name.trim() !== '') {
-											bodyParams[parameter.name] = parameter.value;
+								// 直接使用 bodyParameters.parameters 路徑
+								try {
+									const bodyParameters = this.getNodeParameter('bodyParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
+									
+									if (bodyParameters.length) {
+										const bodyParams: Record<string, string> = {};
+										for (const parameter of bodyParameters) {
+											// 確保參數名稱不為空
+											if (parameter.name && parameter.name.trim() !== '') {
+												bodyParams[parameter.name] = parameter.value;
+											}
+										}
+										
+										if (contentType === 'json') {
+											body = bodyParams as IDataObject;
+										} else {
+											// Form-urlencoded: Convert to query string
+											const queryString = Object.entries(bodyParams)
+												.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+												.join('&');
+											requestOptions.data = queryString;
 										}
 									}
-									
-									if (contentType === 'json') {
-										requestOptions.data = bodyParams;
-									} else {
-										// Form-urlencoded: Convert to query string
-										const queryString = Object.entries(bodyParams)
-											.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-											.join('&');
-										requestOptions.data = queryString;
-									}
+								} catch (_e) {
+									// 錯誤處理
 								}
 							} else {
 								// JSON parameters
 								const bodyJson = this.getNodeParameter('bodyParametersJson', itemIndex, '{}') as string;
 								if (contentType === 'json') {
 									try {
-										requestOptions.data = JSON.parse(bodyJson);
-									} catch (_error) {
+										// 嘗試解析 JSON
+										const parsedJson = JSON.parse(bodyJson);
+										body = parsedJson as IDataObject;
+										// 將 body 設置為請求數據
+										requestOptions.data = body;
+									} catch (_e) {
+										// 如果無法解析為 JSON，則使用原始字符串
+										console.log(`無法解析 bodyParametersJson 為 JSON: ${bodyJson}`);
 										requestOptions.data = bodyJson;
 									}
 								} else {
-									// Form-urlencoded: Use as string
-									requestOptions.data = bodyJson;
+									// Form-urlencoded
+									try {
+										// 嘗試解析 JSON 並將其轉換為 URL 編碼格式
+										const parsedJson = JSON.parse(bodyJson);
+										const queryString = Object.entries(parsedJson)
+											.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+											.join('&');
+										requestOptions.data = queryString;
+									} catch (_e) {
+										// 如果無法解析為 JSON，則使用原始字符串
+										console.log(`無法解析 bodyParametersJson 為 JSON: ${bodyJson}`);
+										requestOptions.data = bodyJson;
+									}
 								}
 							}
 						} else if (contentType === 'raw' || contentType === 'multipart-form-data') {
-							const body = this.getNodeParameter('body', itemIndex, '') as string;
+							const rawContentType = this.getNodeParameter('rawContentType', itemIndex, '') as string;
+							const bodyContent = this.getNodeParameter('body', itemIndex, '') as string;
+							requestOptions.data = bodyContent;
 							
-							if (contentType === 'raw') {
-								requestOptions.data = body;
-							} else {
-								// Simple implementation of multipart/form-data
-								headers['Content-Type'] = 'multipart/form-data';
-								requestOptions.data = body;
+							// 設置 Content-Type header
+							if (rawContentType) {
+								headers['Content-Type'] = rawContentType;
 							}
 						}
 					}
@@ -1156,6 +1287,11 @@ export class HttpsOverProxy implements INodeType {
 						requestOptions.validateStatus = () => true;
 					}
 					
+					// 在 axios 調用前添加
+					if (body !== undefined) {
+						requestOptions.data = body;
+					}
+					
 					// Make the request
 					const response = await axios(requestOptions);
 					
@@ -1184,7 +1320,7 @@ export class HttpsOverProxy implements INodeType {
 						// Handle JSON data
 						try {
 							responseData = JSON.parse(response.data);
-						} catch (_error) {
+						} catch (_e) {
 							if (responseFormat === 'json') {
 								throw new NodeOperationError(
 									this.getNode(),

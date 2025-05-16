@@ -4,6 +4,12 @@
 
 This node allows you to make HTTPS requests through an HTTP proxy in n8n workflows.
 
+## Purpose
+
+This project was created to solve a specific limitation in n8n's standard HTTP node: **the inability to connect to HTTPS websites when using an HTTP proxy**. 
+
+While the standard HTTP node in n8n works well for most HTTP requests, it fails when trying to access HTTPS sites through an HTTP proxy. The HTTPS Over Proxy node addresses this gap while maintaining functionality similar to the built-in HTTP node.
+
 ## Features
 
 - Make HTTPS requests through HTTP proxies

@@ -2,6 +2,12 @@
 
 這個節點允許您在 n8n 工作流程中通過 HTTP 代理發送 HTTPS 請求。
 
+## 專案目的
+
+這個專案主要是為了解決 n8n 標準 HTTP 節點的一個特定限制：**使用 HTTP 代理時無法連接到 HTTPS 網站**。
+
+雖然 n8n 的標準 HTTP 節點對大多數 HTTP 請求運作良好，但在嘗試通過 HTTP 代理訪問 HTTPS 網站時會失敗。HTTPS Over Proxy 節點解決了這個問題，同時保持與內建 HTTP 節點相似的功能。
+
 ## 功能特點
 
 - 通過 HTTP 代理發送 HTTPS 請求
