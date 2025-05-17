@@ -40,8 +40,7 @@
     "n8nNodesApiVersion": 1,
     "credentials": [],
     "nodes": [
-      "dist/HttpsOverProxy.node.js",
-      "dist/HttpsOverProxyDeclarative.node.js"
+      "dist/HttpsOverProxy.node.js"
     ]
   },
   "devDependencies": {

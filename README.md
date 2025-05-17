@@ -18,27 +18,12 @@ While the standard HTTP node in n8n works well for most HTTP requests, it fails 
 - Supports authentication (Basic, Digest, OAuth1, OAuth2, etc.)
 - Supports custom headers and query parameters
 - Supports proxy authentication
-- **NEW: Now available in both programmatic and declarative styles**
+- Built with n8n's declarative architecture for better maintainability
 - Configurable timeout settings
 - Option to ignore SSL certificate validation issues
 - Batch processing capabilities
 - Pagination support
 - Internal network access control for security
-
-## Programmatic vs Declarative Style
-
-This package now includes both programmatic and declarative style nodes:
-
-1. **HttpsOverProxy** - The original programmatic style node
-2. **HttpsOverProxyDeclarative** - The new declarative style node
-
-### Which one should I use?
-
-- **Declarative style** is recommended for new workflows and is more future-proof. It follows n8n's newer architecture, is more maintainable, and may receive more features in the future.
-
-- **Programmatic style** (the original implementation) is kept for backward compatibility. It will continue to work but might not receive as many new features.
-
-Both nodes have identical functionality, and you can use either one depending on your preference.
 
 ## Installation
 
