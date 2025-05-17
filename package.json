@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-httpsoverproxy",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "n8n node to make HTTPS requests through HTTP proxy, solving the common 400 error",
   "keywords": [
     "n8n-community-node-package",
@@ -18,14 +18,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/FunTW/n8n-nodes-httpsoverproxy.git"
+    "url": "git+https://github.com/FunTW/n8n-nodes-httpsoverproxy.git"
   },
   "main": "index.js",
   "scripts": {
     "build": "tsc && gulp build:icons",
     "dev": "tsc --watch",
     "format": "prettier --write .",
-    "lint": "eslint . --quiet",
+    "lint": "eslint --config eslint.config.cjs './**/*.{js,ts}' --quiet",
     "prepublishOnly": "npm run build && npm run lint"
   },
   "files": [
@@ -44,17 +44,20 @@
     ]
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
     "@eslint/js": "^9.27.0",
     "@typescript-eslint/eslint-plugin": "^8.32.0",
     "@typescript-eslint/parser": "^8.32.0",
     "eslint": "^9.27.0",
+    "eslint-plugin-n": "^17.18.0",
     "eslint-plugin-n8n-nodes-base": "^1.16.3",
     "globals": "^16.1.0",
     "gulp": "^5.0.0",
     "n8n-core": "^1.91.0",
     "n8n-workflow": "^1.82.0",
     "prettier": "^3.5.3",
-    "typescript": "~5.8.3"
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.32.1"
   },
   "dependencies": {
     "axios": "^1.9.0",
