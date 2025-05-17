@@ -893,22 +893,25 @@ export class HttpsOverProxyDeclarative implements INodeType {
 					}
 
 					// 設置 HTTPS 代理代理
-					if (useProxy && cleanProxyHost) {
-						// 創建 HTTPS 代理代理
-						const httpsAgent = new HttpsProxyAgent({
-							host: cleanProxyHost,
-							port: proxyPort,
-							headers: proxyAuthHeader ? { 'Proxy-Authorization': proxyAuthHeader } : undefined,
-						});
+					const proxyOptions: any = {
+						host: cleanProxyHost,
+						port: String(proxyPort),
+					};
 
-						// 設置 HTTPS 代理
-						requestOptions.httpsAgent = httpsAgent;
+					// 添加認證標頭
+					if (proxyAuthHeader) {
+						proxyOptions.headers = { 'Proxy-Authorization': proxyAuthHeader };
+					}
 
-						// 設置 HTTP 代理 (用於 HTTP 請求)
-						if (url.startsWith('http:')) {
-							const httpAgent = new http.Agent();
-							requestOptions.httpAgent = httpAgent;
-						}
+					const httpsAgent = new HttpsProxyAgent(proxyOptions);
+
+					// 設置 HTTPS 代理
+					requestOptions.httpsAgent = httpsAgent;
+
+					// 設置 HTTP 代理 (用於 HTTP 請求)
+					if (url.startsWith('http:')) {
+						const httpAgent = new http.Agent();
+						requestOptions.httpAgent = httpAgent;
 					}
 
 					// 處理未授權證書
@@ -927,27 +930,23 @@ export class HttpsOverProxyDeclarative implements INodeType {
 
 					// 處理身份驗證
 					const authentication = this.getNodeParameter('authentication', itemIndex, 'none') as string;
-					let httpBasicAuth: string | undefined;
-					let httpDigestAuth: string | undefined;
-					let httpHeaderAuth: string | undefined;
-					let oAuth1Api: string | undefined;
-					let oAuth2Api: string | undefined;
 
+					// 完全移除未使用的憑證變量，只保留獲取邏輯
 					try {
 						if (authentication === 'basicAuth') {
-							httpBasicAuth = await this.getCredentials('httpBasicAuth', itemIndex);
+							await this.getCredentials('httpBasicAuth', itemIndex);
 						} else if (authentication === 'digestAuth') {
-							httpDigestAuth = await this.getCredentials('httpDigestAuth', itemIndex);
+							await this.getCredentials('httpDigestAuth', itemIndex);
 						} else if (authentication === 'headerAuth') {
-							httpHeaderAuth = await this.getCredentials('httpHeaderAuth', itemIndex);
+							await this.getCredentials('httpHeaderAuth', itemIndex);
 						} else if (authentication === 'oAuth1') {
-							oAuth1Api = await this.getCredentials('oAuth1Api', itemIndex);
+							await this.getCredentials('oAuth1Api', itemIndex);
 						} else if (authentication === 'oAuth2') {
-							oAuth2Api = await this.getCredentials('oAuth2Api', itemIndex);
+							await this.getCredentials('oAuth2Api', itemIndex);
 						}
-					} catch (error) {
-						// 處理無法獲取憑證的情況
-						throw new NodeOperationError(this.getNode(), `無法獲取身份驗證憑證: ${error.message}`, { itemIndex });
+					} catch (_error) {
+	// 處理無法獲取憑證的情況
+	throw new NodeOperationError(this.getNode(), `無法獲取身份驗證憑證: ${_error.message}`, { itemIndex });
 					}
 
 					// 處理標頭
@@ -971,8 +970,8 @@ export class HttpsOverProxyDeclarative implements INodeType {
 							try {
 								const headersObject = JSON.parse(headersJson);
 								Object.assign(requestOptions.headers!, headersObject);
-							} catch (error) {
-								throw new NodeOperationError(this.getNode(), `標頭 JSON 無效: ${error.message}`, { itemIndex });
+							} catch (_error) {
+							throw new NodeOperationError(this.getNode(), `標頭 JSON 無效: ${_error.message}`, { itemIndex });
 							}
 						}
 					}
@@ -998,8 +997,8 @@ export class HttpsOverProxyDeclarative implements INodeType {
 							
 							try {
 								queryParams = JSON.parse(queryJson);
-							} catch (error) {
-								throw new NodeOperationError(this.getNode(), `查詢參數 JSON 無效: ${error.message}`, { itemIndex });
+							} catch (_error) {
+							throw new NodeOperationError(this.getNode(), `查詢參數 JSON 無效: ${_error.message}`, { itemIndex });
 							}
 						}
 						
@@ -1030,8 +1029,8 @@ export class HttpsOverProxyDeclarative implements INodeType {
 								
 								try {
 									body = JSON.parse(bodyJson);
-								} catch (error) {
-									throw new NodeOperationError(this.getNode(), `主體 JSON 無效: ${error.message}`, { itemIndex });
+								} catch (_error) {
+								throw new NodeOperationError(this.getNode(), `主體 JSON 無效: ${_error.message}`, { itemIndex });
 								}
 							}
 							
@@ -1092,39 +1091,39 @@ export class HttpsOverProxyDeclarative implements INodeType {
 					
 					try {
 						response = await axios(requestOptions);
-					} catch (error) {
-						if (error.code === 'TIMEOUT') {
-							throw new NodeOperationError(this.getNode(), `請求超時: ${error.message}`, { itemIndex });
-						}
-						
-						// 如果設置了 neverError，即使請求失敗也返回響應
-						if (options.neverError === true && error.response) {
-							response = error.response;
+					} catch (_error) {
+					if (_error.code === 'TIMEOUT') {
+						throw new NodeOperationError(this.getNode(), `請求超時: ${_error.message}`, { itemIndex });
+					}
+					
+					// 如果設置了 neverError，即使請求失敗也返回響應
+					if (options.neverError === true && _error.response) {
+						response = _error.response;
+					} else {
+						// 獲取錯誤詳情以提供更有用的錯誤訊息
+						if (_error.response) {
+							// 服務器返回了錯誤狀態碼
+							throw new NodeOperationError(
+								this.getNode(),
+								`請求失敗: 狀態碼 ${_error.response.status} - ${_error.response.statusText}`,
+								{ itemIndex },
+							);
+						} else if (_error.request) {
+							// 請求已發送但未收到響應
+							throw new NodeOperationError(
+								this.getNode(),
+								`無法收到響應: ${_error.message}。請檢查代理設置和目標服務器是否可用。`,
+								{ itemIndex },
+							);
 						} else {
-							// 獲取錯誤詳情以提供更有用的錯誤訊息
-							if (error.response) {
-								// 服務器返回了錯誤狀態碼
-								throw new NodeOperationError(
-									this.getNode(),
-									`請求失敗: 狀態碼 ${error.response.status} - ${error.response.statusText}`,
-									{ itemIndex },
-								);
-							} else if (error.request) {
-								// 請求已發送但未收到響應
-								throw new NodeOperationError(
-									this.getNode(),
-									`無法收到響應: ${error.message}。請檢查代理設置和目標服務器是否可用。`,
-									{ itemIndex },
-								);
-							} else {
-								// 處理請求設置時發生錯誤
-								throw new NodeOperationError(
-									this.getNode(),
-									`請求設置錯誤: ${error.message}`,
-									{ itemIndex },
-								);
-							}
+							// 處理請求設置時發生錯誤
+							throw new NodeOperationError(
+								this.getNode(),
+								`請求設置錯誤: ${_error.message}`,
+								{ itemIndex },
+							);
 						}
+					}
 					} finally {
 						if (timeoutId) {
 							clearTimeout(timeoutId);
@@ -1176,7 +1175,7 @@ export class HttpsOverProxyDeclarative implements INodeType {
 									json: responseData,
 									pairedItem: { item: itemIndex },
 								};
-							} catch (error) {
+							} catch (_error) {
 								// 如果不是有效的 JSON，則當作字符串處理
 								newItem = {
 									json: {
@@ -1226,10 +1225,10 @@ export class HttpsOverProxyDeclarative implements INodeType {
 						if (typeof responseData === 'string') {
 							try {
 								responseData = JSON.parse(responseData);
-							} catch (error) {
+							} catch (_error) {
 								throw new NodeOperationError(
 									this.getNode(),
-									`響應不是有效的 JSON: ${error.message}`,
+									`響應不是有效的 JSON: ${_error.message}`,
 									{ itemIndex },
 								);
 							}
@@ -1242,23 +1241,23 @@ export class HttpsOverProxyDeclarative implements INodeType {
 					}
 					
 					batchItems.push(newItem);
-				} catch (error) {
-					// 清除超時計時器
-					if (timeoutId) {
-						clearTimeout(timeoutId);
-					}
-					
-					// 錯誤處理
-					if (this.continueOnFail()) {
-						batchItems.push({
-							json: {
-								error: error.message,
-							},
-							pairedItem: { item: itemIndex },
-						});
-						continue;
-					}
-					throw error;
+				} catch (_error) {
+	// 清除超時計時器
+	if (timeoutId) {
+		clearTimeout(timeoutId);
+	}
+	
+	// 錯誤處理
+	if (this.continueOnFail()) {
+		batchItems.push({
+			json: {
+				error: _error.message,
+			},
+			pairedItem: { item: itemIndex },
+		});
+		continue;
+	}
+	throw _error;
 				}
 			}
 			
@@ -1276,11 +1275,11 @@ export class HttpsOverProxyDeclarative implements INodeType {
 				const batchItems = await processBatch(i);
 				returnItems.push(...batchItems);
 			}
-		} catch (error) {
+		} catch (_error) {
 			if (this.continueOnFail()) {
 				return [items];
 			}
-			throw error;
+			throw _error;
 		}
 
 		return [returnItems];
