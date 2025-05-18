@@ -791,6 +791,18 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 									default: true,
 									description: 'Whether to stop when the response is empty',
 								},
+								{
+									displayName: 'Complete Expression',
+									name: 'completeExpression',
+									type: 'string',
+									displayOptions: {
+										show: {
+											paginationMode: ['updateAParameter', 'responseContainsNextUrl'],
+										},
+									},
+									default: '',
+									description: 'Javascript expression that returns true when pagination complete. Example: {{ $response.body.meta.page >= $response.body.meta.totalPages }}',
+								},
 							],
 						},
 					],
