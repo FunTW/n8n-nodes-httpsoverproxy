@@ -2,7 +2,7 @@ module.exports = {
 	loadNodeTypes() {
 		return {
 			nodeTypes: [
-				require('./dist/HttpsOverProxy.node').HttpsOverProxy,
+				require('./dist/nodes/HttpsOverProxy/HttpsOverProxy.node').HttpsOverProxy,
 			],
 		};
 	},
