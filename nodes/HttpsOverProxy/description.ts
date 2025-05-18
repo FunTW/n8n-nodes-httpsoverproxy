@@ -482,7 +482,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					name: 'allowInternalNetworkAccess',
 					type: 'boolean',
 					default: false,
-					description: '是否允許訪問內部網絡地址 (localhost, 127.0.0.1, 192.168.x.x 等)。出於安全考慮，預設禁止訪問內部網絡。',
+					description: 'Whether to allow access to internal network addresses (localhost, 127.0.0.1, 192.168.x.x, etc.). For security reasons, access to internal networks is disabled by default.',
 				},
 				{
 					displayName: 'Batching',
@@ -541,14 +541,14 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 									type: 'string',
 									default: '',
 									placeholder: 'http://myproxy:3128',
-									description: '代理伺服器網址，格式為 http://主機名:埠號，如 http://myproxy:3128',
+									description: 'Proxy server URL in the format http://hostname:port, e.g. http://myproxy:3128',
 								},
 								{
 									displayName: 'Proxy Authentication',
 									name: 'proxyAuth',
 									type: 'boolean',
 									default: false,
-									description: '代理伺服器是否需要身份驗證',
+									description: 'Whether the proxy server requires authentication',
 								},
 								{
 									displayName: 'Proxy Username',
@@ -560,7 +560,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 										},
 									},
 									default: '',
-									description: '代理身份驗證的用戶名',
+									description: 'Username for proxy authentication',
 								},
 								{
 									displayName: 'Proxy Password',
@@ -572,7 +572,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 										},
 									},
 									default: '',
-									description: '代理身份驗證的密碼',
+									description: 'Password for proxy authentication',
 								},
 							],
 						},
@@ -685,7 +685,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 						minValue: 1,
 					},
 					default: 30000,
-					description: '請求超時時間（毫秒）。如果代理或目標網站較慢，請增加此值',
+					description: 'Request timeout in milliseconds. Increase this value if the proxy or target website is slow',
 				},
 				{
 					displayName: 'Pagination',

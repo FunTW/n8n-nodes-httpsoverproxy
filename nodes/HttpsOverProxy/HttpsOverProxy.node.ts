@@ -20,17 +20,17 @@ export class HttpsOverProxy implements INodeType {
 		const items = this.getInputData();
 		const returnItems: INodeExecutionData[] = [];
 
-		// 添加調試日誌，檢查節點參數
+		// Add debug logs to check node parameters
 		try {
-			console.log('===== HTTPS Over Proxy 節點執行 =====');
+			console.log('===== HTTPS Over Proxy Node Execution =====');
 			
-			// 檢查 Method 和 URL
+			// Check Method and URL
 			const method = this.getNodeParameter('method', 0) as string;
 			const url = this.getNodeParameter('url', 0) as string;
 			console.log('Method:', method);
 			console.log('URL:', url);
 			
-			// 檢查 Headers
+			// Check Headers
 			const sendHeaders = this.getNodeParameter('sendHeaders', 0, false) as boolean;
 			console.log('Send Headers:', sendHeaders);
 			
@@ -51,7 +51,7 @@ export class HttpsOverProxy implements INodeType {
 				}
 			}
 			
-			// 檢查 Body
+			// Check Body
 			const sendBody = this.getNodeParameter('sendBody', 0, false) as boolean;
 			console.log('Send Body:', sendBody);
 			
@@ -80,11 +80,11 @@ export class HttpsOverProxy implements INodeType {
 			console.log('Error in debug section:', e.message);
 		}
 		
-		// 處理 cURL 導入
-		// 注意：cURL 導入功能是在 n8n 前端處理的
-		// 當用戶導入 cURL 命令時，前端會將命令解析為相應的參數，然後設置到節點的參數中
-		// 這些參數會在執行時自動被獲取，例如 this.getNodeParameter('method', itemIndex)
-		// 所以我們不需要在這裡額外處理 cURL 導入的參數
+		// Handle cURL import
+		// Note: cURL import functionality is handled in the n8n frontend
+		// When users import a cURL command, the frontend will parse the command into parameters and set them in the node
+		// These parameters will be automatically retrieved during execution, e.g., this.getNodeParameter('method', itemIndex)
+		// So we don't need to handle cURL import parameters separately here
 
 		// batching
 		const batchSize = this.getNodeParameter('options.batching.batch.batchSize', 0, 1) as number;
@@ -97,11 +97,11 @@ export class HttpsOverProxy implements INodeType {
 			const endIndex = Math.min(startIndex + batchSize, items.length);
 			
 			for (let itemIndex = startIndex; itemIndex < endIndex; itemIndex++) {
-				// 宣告 timeoutId 變數，確保在整個函數區塊內可用
+				// Declare timeoutId variable to ensure it's available throughout the function block
 				let timeoutId: NodeJS.Timeout | undefined;
 				
 				try {
-					// 檢查代理設置是否存在
+					// Check if proxy settings exist
 					const proxySettings = this.getNodeParameter('options.proxy.settings', itemIndex, null) as {
 						proxyUrl?: string;
 						proxyAuth?: boolean;
@@ -109,38 +109,38 @@ export class HttpsOverProxy implements INodeType {
 						proxyPassword?: string;
 					} | null;
 					
-					// 檢查是否有代理設定
+					// Check if proxy settings are enabled
 					const useProxy = !!(proxySettings && proxySettings.proxyUrl && proxySettings.proxyUrl.trim() !== '');
 					
 					if (useProxy && (!proxySettings?.proxyUrl)) {
 						throw new NodeOperationError(
 							this.getNode(),
-							'使用代理時，必須提供有效的代理 URL。格式為 http://myproxy:3128',
+							'When using a proxy, you must provide a valid proxy URL in the format http://myproxy:3128',
 							{ itemIndex },
 						);
 					}
 					
-					// 處理代理 URL
+					// Process proxy URL
 					let proxyHost = '';
-					let proxyPort = 8080; // 預設埠號
+					let proxyPort = 8080; // Default port
 					
 					if (useProxy && proxySettings?.proxyUrl) {
 						try {
-							// 嘗試解析代理 URL
+							// Try to parse proxy URL
 							const proxyUrlObj = new URL(proxySettings.proxyUrl);
 							proxyHost = proxyUrlObj.hostname;
 							proxyPort = parseInt(proxyUrlObj.port || '8080', 10);
 						} catch (_error) {
-							// 如果 URL 解析失敗，嘗試直接分割
+							// If URL parsing fails, try direct splitting
 							const urlParts = proxySettings.proxyUrl.split(':');
 							if (urlParts.length === 2) {
 								proxyHost = urlParts[0];
 								proxyPort = parseInt(urlParts[1], 10) || 8080;
 							} else {
-								// 不正確的格式
+								// Incorrect format
 								throw new NodeOperationError(
 									this.getNode(),
-									`代理 URL 格式不正確: ${proxySettings.proxyUrl}。正確格式應為 http://myproxy:3128 或 myproxy:3128`,
+									`Invalid proxy URL format: ${proxySettings.proxyUrl}. The correct format should be http://myproxy:3128 or myproxy:3128`,
 									{ itemIndex },
 								);
 							}
@@ -163,7 +163,7 @@ export class HttpsOverProxy implements INodeType {
 						neverError?: boolean;
 					};
 					
-					// 移除代理主機中可能的協議前綴
+					// Remove possible protocol prefix from proxy host
 					let cleanProxyHost = '';
 					if (proxyHost) {
 						cleanProxyHost = proxyHost.replace(/^(http|https):\/\//, '');
@@ -175,51 +175,51 @@ export class HttpsOverProxy implements INodeType {
 						url,
 						headers: {},
 						timeout: options.timeout || 30000,
-						proxy: false, // 禁用 axios 內建代理處理
+						proxy: false, // Disable axios built-in proxy handling
 					};
 					
-					// 使用 AbortController 來控制超時
+					// Use AbortController to control timeout
 					const controller = new AbortController();
 					requestOptions.signal = controller.signal;
 					
-					// 設定超時計時器
+					// Set timeout timer
 					const timeoutMs = options.timeout || 30000;
 					timeoutId = setTimeout(() => {
-						// 修改：取消時添加自定義錯誤訊息
-						const timeoutError = new Error(`請求因超時(${timeoutMs}ms)被取消。這是由節點的超時設定觸發的。如果您需要更多時間來完成請求，請增加超時設定值。`);
-						// 使用接口擴展錯誤
+						// Modified: Add custom error message when canceling
+						const timeoutError = new Error(`Request canceled due to timeout (${timeoutMs}ms). This was triggered by the node's timeout setting. If you need more time to complete the request, please increase the timeout value.`);
+						// Use interface to extend error
 						const customError = timeoutError as Error & { code: string };
-						customError.code = 'TIMEOUT'; // 使用自定義錯誤代碼
+						customError.code = 'TIMEOUT'; // Use custom error code
 						
-						// 在 Node.js 中，AbortController.abort() 標準上不接受參數，但我們需要自定義錯誤
+						// In Node.js, AbortController.abort() doesn't accept parameters by standard, but we need custom errors
 						// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 						// @ts-ignore
-						controller.abort(customError); // 在 abort 時傳遞自定義錯誤
+						controller.abort(customError); // Pass custom error when aborting
 					}, timeoutMs);
 					
 					// Proxy authentication if needed
 					let proxyAuthHeader = '';
 					if (useProxy && proxySettings?.proxyAuth) {
 						if (proxySettings.proxyUsername && proxySettings.proxyPassword) {
-							// 使用更安全的方式處理密碼 - 避免直接在字符串中暴露密碼
+							// Use a more secure way to handle passwords - avoid exposing passwords directly in strings
 							const username = String(proxySettings.proxyUsername);
 							const password = String(proxySettings.proxyPassword);
 							const auth = Buffer.from(`${username}:${password}`).toString('base64');
 							proxyAuthHeader = `Basic ${auth}`;
 							
-							// 使用後立即清除密碼變量
-							// 注意：這不能完全防止密碼在內存中的存在，但可以減少暴露時間
+							// Clear password variable immediately after use
+							// Note: This can't completely prevent the password from existing in memory, but it reduces exposure time
 							setTimeout(() => {
 								password.replace(/./g, '*');
 							}, 0);
 						}
 					}
 					
-					// 驗證URL以防止SSRF攻擊
+					// Validate URL to prevent SSRF attacks
 					try {
 						const parsedUrl = new URL(url);
 						
-						// 檢查是否為內部IP或本地主機
+						// Check if it's an internal IP or localhost
 						const hostname = parsedUrl.hostname.toLowerCase();
 						if (
 							hostname === 'localhost' || 
@@ -231,7 +231,7 @@ export class HttpsOverProxy implements INodeType {
 								(parseInt(hostname.split('.')[1], 10) >= 16 && 
 								parseInt(hostname.split('.')[1], 10) <= 31))
 						) {
-							// 如果是內部地址，檢查是否明確允許訪問內部網絡
+							// If it's an internal address, check if access to internal network is explicitly allowed
 							const allowInternalNetworkAccess = this.getNodeParameter(
 								'options.allowInternalNetworkAccess',
 								itemIndex,
@@ -240,13 +240,13 @@ export class HttpsOverProxy implements INodeType {
 							
 							if (!allowInternalNetworkAccess) {
 								throw new Error(
-									`安全限制：不允許訪問內部網絡地址 "${hostname}"。如果確實需要訪問內部網絡，請在選項中啟用"允許訪問內部網絡"。`
+									`Security restriction: Access to internal network address "${hostname}" is not allowed. If you need to access internal networks, please enable "Allow Internal Network Access" in the options.`
 								);
 							}
 						}
 					} catch (error) {
 						if (error.code === 'ERR_INVALID_URL') {
-							throw new NodeOperationError(this.getNode(), `無效的URL: ${url}`, { itemIndex });
+							throw new NodeOperationError(this.getNode(), `Invalid URL: ${url}`, { itemIndex });
 						}
 						throw error;
 					}
@@ -259,22 +259,22 @@ export class HttpsOverProxy implements INodeType {
 							try {
 								queryParameters = this.getNodeParameter('queryParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
 							} catch (_e) {
-								// 如果上面的路徑不存在，嘗試使用 queryParameters 參數
+								// If the path above doesn't exist, try using queryParameters parameter
 								try {
 									const queryParams = this.getNodeParameter('queryParameters', itemIndex, {}) as { parameters?: Array<{ name: string; value: string }> };
 									if (queryParams && queryParams.parameters) {
 										queryParameters = queryParams.parameters;
 									}
 								} catch (_e2) {
-									// eslint 要求未使用的錯誤變數要用 _e 命名
-									// 如果兩種方式都失敗，使用空陣列
+									// eslint requires unused error variables to be named with _e
+									// If both methods fail, use an empty array
 									queryParameters = [];
 								}
 							}
 							if (queryParameters.length) {
 								const queryParams: Record<string, string> = {};
 								for (const parameter of queryParameters) {
-									// 確保參數名稱不為空
+									// Ensure parameter name is not empty
 									if (parameter.name && parameter.name.trim() !== '') {
 										queryParams[parameter.name] = parameter.value;
 									}
@@ -295,31 +295,31 @@ export class HttpsOverProxy implements INodeType {
 					// Add headers
 					const headers: Record<string, string> = {};
 					const sendHeaders = this.getNodeParameter('sendHeaders', itemIndex, false) as boolean;
-					const lowercaseHeaders = options.lowercaseHeaders !== false; // 默認為 true
+					const lowercaseHeaders = options.lowercaseHeaders !== false; // Default is true
 					
 					if (sendHeaders) {
 						const specifyHeaders = this.getNodeParameter('specifyHeaders', itemIndex, 'keypair') as string;
 						
 						if (specifyHeaders === 'keypair') {
-							// 直接使用 headerParameters.parameters 路徑
+							// Directly use headerParameters.parameters path
 							try {
 								const headerParameters = this.getNodeParameter('headerParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
 								for (const header of headerParameters) {
-									// 確保標頭名稱不為空
+									// Ensure header name is not empty
 									if (header.name && header.name.trim() !== '') {
 										const headerName = lowercaseHeaders ? header.name.toLowerCase() : header.name;
 										headers[headerName] = header.value;
 									}
 								}
 							} catch (_e) {
-								// 錯誤處理
+								// Error handling
 							}
 						} else {
 							// JSON headers
 							const headersJson = this.getNodeParameter('headersJson', itemIndex, '{}') as string;
 							try {
 								const parsedHeaders = JSON.parse(headersJson);
-								// 將解析的頭部合併到 headers 對象中
+								// Merge parsed headers into headers object
 								for (const key in parsedHeaders) {
 									if (Object.prototype.hasOwnProperty.call(parsedHeaders, key)) {
 										const headerName = lowercaseHeaders ? key.toLowerCase() : key;
@@ -355,14 +355,14 @@ export class HttpsOverProxy implements INodeType {
 							}
 							
 							if (specifyBody === 'keypair') {
-								// 直接使用 bodyParameters.parameters 路徑
+								// Directly use bodyParameters.parameters path
 								try {
 									const bodyParameters = this.getNodeParameter('bodyParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
 									
 									if (bodyParameters.length) {
 										const bodyParams: Record<string, string> = {};
 										for (const parameter of bodyParameters) {
-											// 確保參數名稱不為空
+											// Ensure parameter name is not empty
 											if (parameter.name && parameter.name.trim() !== '') {
 												bodyParams[parameter.name] = parameter.value;
 											}
@@ -379,35 +379,35 @@ export class HttpsOverProxy implements INodeType {
 										}
 									}
 								} catch (_e) {
-									// 錯誤處理
+									// Error handling
 								}
 							} else {
 								// JSON parameters
 								const bodyJson = this.getNodeParameter('bodyParametersJson', itemIndex, '{}') as string;
 								if (contentType === 'json') {
 									try {
-										// 嘗試解析 JSON
+										// Try to parse JSON
 										const parsedJson = JSON.parse(bodyJson);
 										body = parsedJson as IDataObject;
-										// 將 body 設置為請求數據
+										// Set body as request data
 										requestOptions.data = body;
 									} catch (_e) {
-										// 如果無法解析為 JSON，則使用原始字符串
-										console.log(`無法解析 bodyParametersJson 為 JSON: ${bodyJson}`);
+										// If can't parse as JSON, use raw string
+										console.log(`Unable to parse bodyParametersJson as JSON: ${bodyJson}`);
 										requestOptions.data = bodyJson;
 									}
 								} else {
 									// Form-urlencoded
 									try {
-										// 嘗試解析 JSON 並將其轉換為 URL 編碼格式
+										// Try to parse JSON and convert to URL encoded format
 										const parsedJson = JSON.parse(bodyJson);
 										const queryString = Object.entries(parsedJson)
 											.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
 											.join('&');
 										requestOptions.data = queryString;
 									} catch (_e) {
-										// 如果無法解析為 JSON，則使用原始字符串
-										console.log(`無法解析 bodyParametersJson 為 JSON: ${bodyJson}`);
+										// If can't parse as JSON, use raw string
+										console.log(`Unable to parse bodyParametersJson as JSON: ${bodyJson}`);
 										requestOptions.data = bodyJson;
 									}
 								}
@@ -417,48 +417,48 @@ export class HttpsOverProxy implements INodeType {
 							const bodyContent = this.getNodeParameter('body', itemIndex, '') as string;
 							requestOptions.data = bodyContent;
 							
-							// 設置 Content-Type header
+							// Set Content-Type header
 							if (rawContentType) {
 								headers['Content-Type'] = rawContentType;
 							}
 						}
 					}
 					
-					// 配置代理
+					// Configure proxy
 					const allowUnauthorizedCerts = options.allowUnauthorizedCerts || false;
 					
-					// 只有在啟用代理時才使用代理
+					// Only use proxy if enabled
 					if (useProxy && cleanProxyHost) {
-						// 配置 HTTPS 代理
+						// Configure HTTPS proxy
 						if (url.startsWith('https:')) {
-							// 使用 https-proxy-agent 處理 HTTPS over HTTP 代理的問題
+							// Use https-proxy-agent to handle HTTPS over HTTP proxy issues
 							const proxyUrl = proxySettings?.proxyAuth && proxySettings.proxyUsername && proxySettings.proxyPassword
 								? `http://${proxySettings.proxyUsername}:${proxySettings.proxyPassword}@${cleanProxyHost}:${proxyPort}`
 								: `http://${cleanProxyHost}:${proxyPort}`;
 							
-							// 修改：確保 rejectUnauthorized 選項能正確應用於代理
+							// Modified: Ensure rejectUnauthorized option is correctly applied to proxy
 							const httpsProxyAgent = new HttpsProxyAgent(proxyUrl, {
 								rejectUnauthorized: !allowUnauthorizedCerts,
 								timeout: options.timeout || 30000,
 							});
 							
-							// 將代理 agent 應用於請求
+							// Apply proxy agent to request
 							requestOptions.httpsAgent = httpsProxyAgent;
 							
-							// 同時也設定目標服務器的 SSL 驗證選項
-							// 注意：這是關鍵！即使代理配置正確，也需要確保目標服務器的證書驗證與選項一致
+							// Also set SSL verification options for target server
+							// Note: This is crucial! Even with correctly configured proxy, we need to ensure target server certificate validation matches the options
 							
-							// 將這些選項應用到底層 HTTPS 模組，確保所有 HTTPS 請求都使用相同的 SSL 驗證設定
+							// Apply these options to the underlying HTTPS module, ensuring all HTTPS requests use the same SSL verification settings
 							// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 							// @ts-ignore
 							process.env.NODE_TLS_REJECT_UNAUTHORIZED = allowUnauthorizedCerts ? '0' : '1';
 						} else {
-							// 使用 HTTP 代理
+							// Use HTTP proxy
 							const httpAgent = new http.Agent({
 								timeout: options.timeout || 30000,
 							});
 							
-							// 設置代理
+							// Set proxy
 							requestOptions.proxy = {
 								host: cleanProxyHost,
 								port: proxyPort,
@@ -468,7 +468,7 @@ export class HttpsOverProxy implements INodeType {
 							requestOptions.httpAgent = httpAgent;
 						}
 					} else if (allowUnauthorizedCerts) {
-						// 如果沒有使用代理，但需要忽略SSL問題
+						// If not using proxy but need to ignore SSL issues
 						requestOptions.httpsAgent = new https.Agent({
 							rejectUnauthorized: !allowUnauthorizedCerts,
 							timeout: options.timeout || 30000,
@@ -498,7 +498,7 @@ export class HttpsOverProxy implements INodeType {
 					// Make the request
 					const response = await axios(requestOptions);
 					
-					// 清除超時計時器
+					// Clear timeout timer
 					if (timeoutId) {
 						clearTimeout(timeoutId);
 					}
@@ -507,7 +507,7 @@ export class HttpsOverProxy implements INodeType {
 					let responseData;
 					const contentType = response.headers['content-type'] || '';
 					
-					// 獲取響應格式，如果未指定則默認為autodetect
+					// Get response format, default to autodetect if not specified
 					const responseFormat = options.responseFormat || 'autodetect';
 					
 					if (responseFormat === 'file') {
@@ -554,7 +554,7 @@ export class HttpsOverProxy implements INodeType {
 							data: responseData,
 						};
 					} else {
-						// 如果 responseData 是字串，包成 { data: responseData }
+						// If responseData is a string, wrap it as { data: responseData }
 						if (typeof responseData === 'string') {
 							executionData = { data: responseData };
 						} else {
@@ -572,22 +572,22 @@ export class HttpsOverProxy implements INodeType {
 					if (this.continueOnFail()) {
 						let errorMessage = error.message;
 						
-						// 特別處理 "canceled" 錯誤
+						// Special handling for "canceled" errors
 						if (errorMessage === 'canceled' || error.code === 'ERR_CANCELED') {
 							const currentOptions = this.getNodeParameter('options', itemIndex, {}) as {
 								timeout?: number;
 							};
 							const timeout = currentOptions.timeout || 30000;
 							
-							// 修改：不要在這裡使用 "canceled" 作為錯誤訊息，而是直接提供詳細的超時解釋
-							errorMessage = `請求因超時(${timeout}ms)被取消。這是由節點的超時設定觸發的。如果您需要更多時間來完成請求，請增加超時設定值。`;
-							error.message = errorMessage; // 替換原始錯誤的訊息
-							error.code = 'TIMEOUT'; // 重新設定錯誤代碼為 TIMEOUT
+							// Modified: Don't use "canceled" as error message, provide detailed timeout explanation
+							errorMessage = `Request canceled due to timeout (${timeout}ms). This was triggered by the node's timeout setting. If you need more time to complete the request, please increase the timeout value.`;
+							error.message = errorMessage; // Replace original error message
+							error.code = 'TIMEOUT'; // Reset error code to TIMEOUT
 							
-							// 創建帶有更詳細超時訊息的錯誤對象
+							// Create error object with more detailed timeout message
 							const safeErrorResponse = {
-								errorMessage: errorMessage, // 修改：使用更明確的屬性名稱
-								error: errorMessage, // 保持兼容性
+								errorMessage: errorMessage, // Modified: Use more explicit property name
+								error: errorMessage, // Keep for compatibility
 								code: 'TIMEOUT',
 								request: error.config ? {
 									url: error.config.url,
@@ -603,9 +603,9 @@ export class HttpsOverProxy implements INodeType {
 							continue;
 						}
 						
-						// 提供更詳細的錯誤信息
+						// Provide more detailed error information
 						if (errorMessage.includes('tunneling socket could not be established')) {
-							// 重新獲取代理設定以處理錯誤
+							// Get proxy settings to handle error
 							const errorProxySettings = this.getNodeParameter('options.proxy.settings', itemIndex, {}) as {
 								proxyUrl?: string;
 								proxyAuth?: boolean;
@@ -617,13 +617,13 @@ export class HttpsOverProxy implements INodeType {
 							let errorProxyHost = '';
 							let errorProxyPort = 8080;
 							
-							// 嘗試解析代理 URL
+							// Try to parse proxy URL
 							try {
 								const errorProxyUrlObj = new URL(proxyUrl.startsWith('http') ? proxyUrl : `http://${proxyUrl}`);
 								errorProxyHost = errorProxyUrlObj.hostname;
 								errorProxyPort = parseInt(errorProxyUrlObj.port || '8080', 10);
 							} catch (_parseError) {
-								// 解析失敗時嘗試簡單分割
+								// Try simple splitting if parsing fails
 								const parts = proxyUrl.split(':');
 								if (parts.length >= 2) {
 									errorProxyHost = parts[0];
@@ -633,41 +633,41 @@ export class HttpsOverProxy implements INodeType {
 								}
 							}
 							
-							// 檢測代理地址格式錯誤
+							// Detect proxy address format errors
 							if (!proxyUrl.includes(':')) {
-								errorMessage = `代理地址格式錯誤：缺少端口號。正確格式應為 "myproxy:3128" 或 "http://myproxy:3128"。`;
+								errorMessage = `Invalid proxy address format: missing port number. The correct format should be "myproxy:3128" or "http://myproxy:3128".`;
 							} else if (errorMessage.includes('ENOTFOUND')) {
-								errorMessage = `無法連接到代理服務器：找不到主機 "${errorProxyHost}"。請檢查代理地址是否正確，或嘗試使用IP地址替代域名。`;
+								errorMessage = `Unable to connect to proxy server: host "${errorProxyHost}" not found. Please check if the proxy address is correct, or try using an IP address instead of a domain name.`;
 							} else if (errorMessage.includes('ECONNREFUSED')) {
-								errorMessage = `代理服務器連接被拒絕：${errorProxyHost}:${errorProxyPort}。請確認代理服務器正在運行且端口號正確。`;
+								errorMessage = `Proxy server connection refused: ${errorProxyHost}:${errorProxyPort}. Please verify the proxy server is running and the port number is correct.`;
 							} else if (errorMessage.includes('ETIMEDOUT')) {
-								errorMessage = `連接代理服務器超時：${errorProxyHost}:${errorProxyPort}。請檢查網絡連接或代理服務器是否可用。`;
+								errorMessage = `Proxy server connection timeout: ${errorProxyHost}:${errorProxyPort}. Please check your network connection or if the proxy server is available.`;
 							}
 						} else if (errorMessage.includes('timeout') && error.code === 'ECONNABORTED') {
-							// 獲取當前的超時設置
+							// Get current timeout settings
 							const currentOptions = this.getNodeParameter('options', itemIndex, {}) as {
 								timeout?: number;
 							};
 							const timeout = currentOptions.timeout || 30000;
-							errorMessage = `請求超時：${timeout}毫秒內未收到回應。請檢查網絡連接、代理服務器和目標網站是否正常，或增加超時時間。`;
+							errorMessage = `Request timeout: No response received within ${timeout} milliseconds. Please check your network connection, proxy server and target website, or increase the timeout value.`;
 						} else if (errorMessage.includes('ECONNRESET')) {
-							errorMessage = `連接被重置：服務器可能關閉了連接。請檢查目標服務器是否正常運行。`;
+							errorMessage = `Connection reset: The server may have closed the connection. Please check if the target server is running properly.`;
 						} else if (errorMessage.includes('certificate') || errorMessage.includes('self-signed')) {
-							// 更明確的 SSL 證書錯誤訊息，提醒使用者啟用 "Ignore SSL Issues (Insecure)" 選項
-							errorMessage = `SSL 證書錯誤：${errorMessage}\n\n【解決方法】請在節點的選項中啟用 "Ignore SSL Issues (Insecure)" 開關來忽略 SSL 證書問題。\n\n注意：這會降低連接安全性，僅建議在信任的環境中使用。`;
+							// More explicit SSL certificate error message, reminding users to enable "Ignore SSL Issues (Insecure)" option
+							errorMessage = `SSL certificate error: ${errorMessage}\n\n[SOLUTION] Please enable the "Ignore SSL Issues (Insecure)" option in the node settings to ignore SSL certificate problems.\n\nNote: This will reduce connection security and is only recommended in trusted environments.`;
 						}
 						
-						// 創建安全的錯誤對象，避免暴露敏感信息
+						// Create safe error object, avoiding exposure of sensitive information
 						let safeUrl = '';
 						if (error.config && error.config.url) {
 							try {
 								const parsedUrl = new URL(error.config.url);
-								// 移除用戶名和密碼
+								// Remove username and password
 								parsedUrl.username = '';
 								parsedUrl.password = '';
 								safeUrl = parsedUrl.toString();
 							} catch (_e) {
-								// 如果URL解析失敗，返回原始URL但去除查詢參數
+								// If URL parsing fails, return original URL but remove query parameters
 								safeUrl = error.config.url.split('?')[0];
 							}
 						}
@@ -675,7 +675,7 @@ export class HttpsOverProxy implements INodeType {
 						const safeErrorResponse = {
 							error: errorMessage,
 							code: error.code || 'UNKNOWN_ERROR',
-							// 只包含必要的非敏感配置信息
+							// Only include necessary non-sensitive configuration information
 							request: error.config ? {
 								url: safeUrl,
 								method: error.config.method,
@@ -690,19 +690,19 @@ export class HttpsOverProxy implements INodeType {
 						continue;
 					}
 					
-					// 修改：如果是 canceled 錯誤，替換為更詳細的訊息後再拋出
+					// Modified: If it's a canceled error, replace with more detailed message before throwing
 					if (error.message === 'canceled' || error.code === 'ERR_CANCELED') {
 						const currentOptions = this.getNodeParameter('options', itemIndex, {}) as {
 							timeout?: number;
 						};
 						const timeout = currentOptions.timeout || 30000;
-						const detailedMessage = `請求因超時(${timeout}ms)被取消。這是由節點的超時設定觸發的。如果您需要更多時間來完成請求，請增加超時設定值。`;
+						const detailedMessage = `Request canceled due to timeout (${timeout}ms). This was triggered by the node's timeout setting. If you need more time to complete the request, please increase the timeout value.`;
 						throw new NodeOperationError(this.getNode(), detailedMessage, { itemIndex });
 					}
 					
-					// 特別處理 SSL 證書錯誤
+					// Special handling for SSL certificate errors
 					if (error.message.includes('certificate') || error.message.includes('self-signed')) {
-						const sslErrorMessage = `SSL 證書錯誤：${error.message}\n\n【解決方法】請在節點的選項中啟用 "Ignore SSL Issues (Insecure)" 開關來忽略 SSL 證書問題。\n\n注意：這會降低連接安全性，僅建議在信任的環境中使用。`;
+						const sslErrorMessage = `SSL certificate error: ${error.message}\n\n[SOLUTION] Please enable the "Ignore SSL Issues (Insecure)" option in the node settings to ignore SSL certificate problems.\n\nNote: This will reduce connection security and is only recommended in trusted environments.`;
 						throw new NodeOperationError(this.getNode(), sslErrorMessage, { itemIndex });
 					}
 					
