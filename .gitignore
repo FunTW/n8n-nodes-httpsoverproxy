@@ -40,3 +40,4 @@ yarn-error.log*
 .n8n/
 *.swp
 *.swo 
+todo.md

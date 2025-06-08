@@ -1,0 +1,288 @@
+import {
+	IExecuteFunctions,
+	INodeExecutionData,
+	INodeType,
+	INodeTypeDescription,
+	NodeOperationError,
+	PaginationOptions,
+	IRequestOptions,
+	IDataObject,
+	sleep,
+} from 'n8n-workflow';
+
+import axios, { AxiosRequestConfig } from 'axios';
+import * as https from 'https';
+import * as http from 'http';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import { httpsOverProxyDescription } from './description';
+
+export class HttpsOverProxy implements INodeType {
+	description: INodeTypeDescription = httpsOverProxyDescription;
+
+	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		const items = this.getInputData();
+		const returnItems: INodeExecutionData[] = [];
+
+		// Check for pagination options
+		const pagination = this.getNodeParameter('options.pagination.pagination', 0, null, {
+			rawExpressions: true,
+		}) as {
+			paginationMode: 'off' | 'updateAParameterInEachRequest' | 'responseContainsNextURL';
+			nextURL?: string;
+			parameters: {
+				parameters: Array<{
+					type: 'body' | 'headers' | 'qs';
+					name: string;
+					value: string;
+				}>;
+			};
+			paginationCompleteWhen: 'responseIsEmpty' | 'receiveSpecificStatusCodes' | 'other';
+			statusCodesWhenComplete: string;
+			completeExpression: string;
+			limitPagesFetched: boolean;
+			maxRequests: number;
+			requestInterval: number;
+		};
+
+		// batching
+		const batchSize = this.getNodeParameter('options.batching.batch.batchSize', 0, 1) as number;
+		const batchInterval = this.getNodeParameter('options.batching.batch.batchInterval', 0, 0) as number;
+
+		// 如果啟用了分頁，使用分頁邏輯
+		if (pagination && pagination.paginationMode !== 'off') {
+			return await this.handlePaginatedRequests(items, pagination);
+		}
+
+		// 標準處理邏輯（無分頁）
+		const processBatch = async (startIndex: number): Promise<INodeExecutionData[]> => {
+			const returnData: INodeExecutionData[] = [];
+			
+			const endIndex = Math.min(startIndex + batchSize, items.length);
+			
+			for (let itemIndex = startIndex; itemIndex < endIndex; itemIndex++) {
+				const result = await this.makeHttpRequest(itemIndex, items[itemIndex]);
+				returnData.push(result);
+			}
+			
+			return returnData;
+		};
+
+		// 處理批次
+		for (let i = 0; i < items.length; i += batchSize) {
+			if (i > 0 && batchInterval > 0) {
+				await sleep(batchInterval);
+			}
+			
+			const batchResults = await processBatch(i);
+			returnItems.push(...batchResults);
+		}
+
+		return [returnItems];
+	}
+
+	private async handlePaginatedRequests(
+		items: INodeExecutionData[],
+		pagination: {
+			paginationMode: 'off' | 'updateAParameterInEachRequest' | 'responseContainsNextURL';
+			nextURL?: string;
+			parameters: {
+				parameters: Array<{
+					type: 'body' | 'headers' | 'qs';
+					name: string;
+					value: string;
+				}>;
+			};
+			paginationCompleteWhen: 'responseIsEmpty' | 'receiveSpecificStatusCodes' | 'other';
+			statusCodesWhenComplete: string;
+			completeExpression: string;
+			limitPagesFetched: boolean;
+			maxRequests: number;
+			requestInterval: number;
+		}
+	): Promise<INodeExecutionData[][]> {
+		const returnItems: INodeExecutionData[] = [];
+		
+		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+			// 為每個輸入項目處理分頁
+			let continueExpression = '={{false}}';
+			
+			if (pagination.paginationCompleteWhen === 'receiveSpecificStatusCodes') {
+				const statusCodesWhenCompleted = pagination.statusCodesWhenComplete
+					.split(',')
+					.map((item) => parseInt(item.trim()));
+
+				continueExpression = `={{ !${JSON.stringify(
+					statusCodesWhenCompleted,
+				)}.includes($response.statusCode) }}`;
+			} else if (pagination.paginationCompleteWhen === 'responseIsEmpty') {
+				continueExpression =
+					'={{ Array.isArray($response.body) ? $response.body.length : !!$response.body }}';
+			} else {
+				// Other
+				if (!pagination.completeExpression.length || pagination.completeExpression[0] !== '=') {
+					throw new NodeOperationError(this.getNode(), 'Invalid or empty Complete Expression');
+				}
+				continueExpression = `={{ !(${pagination.completeExpression.trim().slice(3, -2)}) }}`;
+			}
+
+			const paginationData: PaginationOptions = {
+				continue: continueExpression,
+				request: {},
+				requestInterval: pagination.requestInterval,
+			};
+
+			if (pagination.paginationMode === 'updateAParameterInEachRequest') {
+				paginationData.request = {};
+				const { parameters } = pagination.parameters;
+				if (
+					parameters.length === 1 &&
+					parameters[0].name === '' &&
+					parameters[0].value === ''
+				) {
+					throw new NodeOperationError(
+						this.getNode(),
+						"At least one entry with 'Name' and 'Value' filled must be included in 'Parameters' to use 'Update a Parameter in Each Request' mode ",
+					);
+				}
+				pagination.parameters.parameters.forEach((parameter, index) => {
+					if (!paginationData.request[parameter.type]) {
+						paginationData.request[parameter.type] = {};
+					}
+					const parameterName = parameter.name;
+					if (parameterName === '') {
+						throw new NodeOperationError(
+							this.getNode(),
+							`Parameter name must be set for parameter [${index + 1}] in pagination settings`,
+						);
+					}
+					const parameterValue = parameter.value;
+					if (parameterValue === '') {
+						throw new NodeOperationError(
+							this.getNode(),
+							`Some value must be provided for parameter [${
+								index + 1
+							}] in pagination settings, omitting it will result in an infinite loop`,
+						);
+					}
+					paginationData.request[parameter.type]![parameterName] = parameterValue;
+				});
+			} else if (pagination.paginationMode === 'responseContainsNextURL') {
+				paginationData.request.url = pagination.nextURL;
+			}
+
+			if (pagination.limitPagesFetched) {
+				paginationData.maxRequests = pagination.maxRequests;
+			}
+
+			// 使用自定義的分頁請求處理
+			const paginatedResults = await this.executePaginatedRequest(itemIndex, items[itemIndex], paginationData);
+			returnItems.push(...paginatedResults);
+		}
+
+		return [returnItems];
+	}
+
+	private async executePaginatedRequest(
+		itemIndex: number,
+		item: INodeExecutionData,
+		paginationData: PaginationOptions
+	): Promise<INodeExecutionData[]> {
+		const results: INodeExecutionData[] = [];
+		let requestCount = 0;
+		let shouldContinue = true;
+		let lastResponse: any = null;
+
+		while (shouldContinue && (paginationData.maxRequests === undefined || requestCount < paginationData.maxRequests)) {
+			// 添加請求間隔
+			if (requestCount > 0 && paginationData.requestInterval > 0) {
+				await sleep(paginationData.requestInterval);
+			}
+
+			// 執行請求
+			const response = await this.makeHttpRequest(itemIndex, item, paginationData.request, lastResponse);
+			results.push(response);
+			lastResponse = response.json;
+
+			// 檢查是否應該繼續
+			shouldContinue = this.evaluateContinueExpression(paginationData.continue, response);
+			requestCount++;
+
+			// 更新分頁參數
+			if (paginationData.request) {
+				this.updatePaginationParameters(paginationData.request, response);
+			}
+		}
+
+		return results;
+	}
+
+	private evaluateContinueExpression(continueExpression: string, response: INodeExecutionData): boolean {
+		try {
+			// 簡化的表達式評估
+			if (continueExpression.includes('$response.statusCode')) {
+				const statusCode = response.json.statusCode as number;
+				if (continueExpression.includes('.includes(')) {
+					const match = continueExpression.match(/\[([^\]]+)\]\.includes\(\$response\.statusCode\)/);
+					if (match) {
+						const statusCodes = JSON.parse(match[1]);
+						return !statusCodes.includes(statusCode);
+					}
+				}
+			} else if (continueExpression.includes('$response.body')) {
+				const body = response.json.body || response.json;
+				if (continueExpression.includes('Array.isArray')) {
+					return Array.isArray(body) ? body.length > 0 : !!body;
+				}
+			}
+			
+			// 默認繼續
+			return true;
+		} catch (error) {
+			// 如果表達式評估失敗，停止分頁
+			return false;
+		}
+	}
+
+	private updatePaginationParameters(request: any, response: INodeExecutionData): void {
+		// 更新分頁參數的邏輯
+		if (request.qs) {
+			for (const [key, value] of Object.entries(request.qs)) {
+				if (typeof value === 'string' && value.includes('$response')) {
+					// 簡化的參數更新邏輯
+					if (value.includes('$response.body.page')) {
+						const currentPage = this.extractValueFromResponse(response, 'page');
+						if (typeof currentPage === 'number') {
+							request.qs[key] = (currentPage + 1).toString();
+						}
+					}
+				}
+			}
+		}
+	}
+
+	private extractValueFromResponse(response: INodeExecutionData, path: string): any {
+		try {
+			const data = response.json.body || response.json;
+			if (typeof data === 'object' && data !== null) {
+				return data[path];
+			}
+		} catch (error) {
+			// 忽略錯誤
+		}
+		return null;
+	}
+
+	private async makeHttpRequest(
+		itemIndex: number, 
+		item: INodeExecutionData, 
+		paginationRequest?: any,
+		lastResponse?: any
+	): Promise<INodeExecutionData> {
+		// Implementation of makeHttpRequest method
+		// This method should return an INodeExecutionData object
+		// The implementation details depend on the specific requirements of the node
+		// For example, it might involve making an HTTP request, processing the response,
+		// and returning the appropriate INodeExecutionData object
+		throw new Error('Method not implemented');
+	}
+}

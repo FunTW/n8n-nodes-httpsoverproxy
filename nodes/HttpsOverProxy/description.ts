@@ -24,6 +24,15 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 			},
 		},
 		{
+			name: 'httpBearerAuth',
+			required: false,
+			displayOptions: {
+				show: {
+					authentication: ['bearerAuth'],
+				},
+			},
+		},
+		{
 			name: 'httpDigestAuth',
 			required: false,
 			displayOptions: {
@@ -65,6 +74,15 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 			displayOptions: {
 				show: {
 					authentication: ['oAuth2'],
+				},
+			},
+		},
+		{
+			name: 'httpCustomAuth',
+			required: false,
+			displayOptions: {
+				show: {
+					authentication: ['customAuth'],
 				},
 			},
 		},
@@ -136,6 +154,10 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					value: 'basicAuth',
 				},
 				{
+					name: 'Bearer Token',
+					value: 'bearerAuth',
+				},
+				{
 					name: 'Digest Auth',
 					value: 'digestAuth',
 				},
@@ -154,6 +176,10 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 				{
 					name: 'Query Auth',
 					value: 'queryAuth',
+				},
+				{
+					name: 'Custom Auth',
+					value: 'customAuth',
 				},
 			],
 			default: 'none',
@@ -690,18 +716,26 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 				{
 					displayName: 'Pagination',
 					name: 'pagination',
-					placeholder: 'Add Pagination',
+					placeholder: 'Add pagination',
 					type: 'fixedCollection',
-					default: {},
+					typeOptions: {
+						multipleValues: false,
+					},
+					default: {
+						pagination: {},
+					},
 					options: [
 						{
-							name: 'paginate',
-							displayName: 'Paginate',
+							displayName: 'Pagination',
+							name: 'pagination',
 							values: [
 								{
 									displayName: 'Pagination Mode',
 									name: 'paginationMode',
 									type: 'options',
+									typeOptions: {
+										noDataExpression: true,
+									},
 									options: [
 										{
 											name: 'Off',
@@ -709,87 +743,151 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 										},
 										{
 											name: 'Update a Parameter in Each Request',
-											value: 'updateAParameter',
+											value: 'updateAParameterInEachRequest',
 										},
 										{
 											name: 'Response Contains Next URL',
-											value: 'responseContainsNextUrl',
+											value: 'responseContainsNextURL',
 										},
 									],
-									default: 'off',
-									description: 'How to paginate',
+									default: 'updateAParameterInEachRequest',
+									description: 'If pagination should be used',
 								},
 								{
-									displayName: 'Parameter Name',
-									name: 'parameterName',
+									displayName:
+										'Use the $response variables to access the data of the previous response. Refer to the <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/#pagination/?utm_source=n8n_app&utm_medium=node_settings_modal-credential_link&utm_campaign=n8n-nodes-base.httpRequest" target="_blank">docs</a> for more info about pagination/',
+									name: 'webhookNotice',
+									displayOptions: {
+										hide: {
+											paginationMode: ['off'],
+										},
+									},
+									type: 'notice',
+									default: '',
+								},
+								{
+									displayName: 'Next URL',
+									name: 'nextURL',
 									type: 'string',
 									displayOptions: {
 										show: {
-											paginationMode: ['updateAParameter'],
+											paginationMode: ['responseContainsNextURL'],
 										},
 									},
 									default: '',
-									description: 'The name of the parameter to update with the next page number',
+									description:
+										'Should evaluate to the URL of the next page. <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/#pagination" target="_blank">More info</a>.',
 								},
 								{
-									displayName: 'Parameter Initial Value',
-									name: 'initialParameterValue',
-									type: 'number',
+									displayName: 'Parameters',
+									name: 'parameters',
+									type: 'fixedCollection',
 									displayOptions: {
 										show: {
-											paginationMode: ['updateAParameter'],
+											paginationMode: ['updateAParameterInEachRequest'],
 										},
 									},
-									default: 0,
-									description: 'The initial value to set the parameter to',
+									typeOptions: {
+										multipleValues: true,
+										noExpression: true,
+									},
+									placeholder: 'Add Parameter',
+									default: {
+										parameters: [
+											{
+												type: 'qs',
+												name: '',
+												value: '',
+											},
+										],
+									},
+									options: [
+										{
+											name: 'parameters',
+											displayName: 'Parameter',
+											values: [
+												{
+													displayName: 'Type',
+													name: 'type',
+													type: 'options',
+													options: [
+														{
+															name: 'Body',
+															value: 'body',
+														},
+														{
+															name: 'Header',
+															value: 'headers',
+														},
+														{
+															name: 'Query',
+															value: 'qs',
+														},
+													],
+													default: 'qs',
+													description: 'Where the parameter should be set',
+												},
+												{
+													displayName: 'Name',
+													name: 'name',
+													type: 'string',
+													default: '',
+													placeholder: 'e.g page',
+												},
+												{
+													displayName: 'Value',
+													name: 'value',
+													type: 'string',
+													default: '',
+													hint: 'Use expression mode and $response to access response data',
+												},
+											],
+										},
+									],
 								},
 								{
-									displayName: 'Parameter Increment By',
-									name: 'incrementBy',
-									type: 'number',
+									displayName: 'Pagination Complete When',
+									name: 'paginationCompleteWhen',
+									type: 'options',
+									typeOptions: {
+										noDataExpression: true,
+									},
 									displayOptions: {
-										show: {
-											paginationMode: ['updateAParameter'],
+										hide: {
+											paginationMode: ['off'],
 										},
 									},
-									default: 1,
-									description: 'The amount to increment the parameter by for each page',
+									options: [
+										{
+											name: 'Response Is Empty',
+											value: 'responseIsEmpty',
+										},
+										{
+											name: 'Receive Specific Status Code(s)',
+											value: 'receiveSpecificStatusCodes',
+										},
+										{
+											name: 'Other',
+											value: 'other',
+										},
+									],
+									default: 'responseIsEmpty',
+									description: 'When should no further requests be made?',
 								},
 								{
-									displayName: 'Next URL Expression',
-									name: 'nextUrl',
+									displayName: 'Status Code(s) when Complete',
+									name: 'statusCodesWhenComplete',
 									type: 'string',
+									typeOptions: {
+										noDataExpression: true,
+									},
 									displayOptions: {
 										show: {
-											paginationMode: ['responseContainsNextUrl'],
+											paginationCompleteWhen: ['receiveSpecificStatusCodes'],
 										},
 									},
 									default: '',
-									description: 'Expression to extract the next URL from the response. For example: $response.body.next_page_url',
-								},
-								{
-									displayName: 'Max Pages',
-									name: 'maxPages',
-									type: 'number',
-									displayOptions: {
-										show: {
-											paginationMode: ['updateAParameter', 'responseContainsNextUrl'],
-										},
-									},
-									default: 100,
-									description: 'Maximum number of pages to fetch. 0 means unlimited.',
-								},
-								{
-									displayName: 'Stop When Empty Response',
-									name: 'stopOnEmpty',
-									type: 'boolean',
-									displayOptions: {
-										show: {
-											paginationMode: ['updateAParameter', 'responseContainsNextUrl'],
-										},
-									},
-									default: true,
-									description: 'Whether to stop when the response is empty',
+									description: 'Accepts comma-separated values',
 								},
 								{
 									displayName: 'Complete Expression',
@@ -797,11 +895,60 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 									type: 'string',
 									displayOptions: {
 										show: {
-											paginationMode: ['updateAParameter', 'responseContainsNextUrl'],
+											paginationCompleteWhen: ['other'],
 										},
 									},
 									default: '',
-									description: 'Javascript expression that returns true when pagination complete. Example: {{ $response.body.meta.page >= $response.body.meta.totalPages }}',
+									description:
+										'Should evaluate to true when pagination is complete. <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/#pagination" target="_blank">More info</a>.',
+								},
+								{
+									displayName: 'Limit Pages Fetched',
+									name: 'limitPagesFetched',
+									type: 'boolean',
+									typeOptions: {
+										noDataExpression: true,
+									},
+									displayOptions: {
+										hide: {
+											paginationMode: ['off'],
+										},
+									},
+									default: false,
+									noDataExpression: true,
+									description: 'Whether the number of requests should be limited',
+								},
+								{
+									displayName: 'Max Pages',
+									name: 'maxRequests',
+									type: 'number',
+									typeOptions: {
+										noDataExpression: true,
+									},
+									displayOptions: {
+										show: {
+											limitPagesFetched: [true],
+										},
+									},
+									default: 100,
+									description: 'Maximum amount of request to be make',
+								},
+								{
+									// eslint-disable-next-line n8n-nodes-base/node-param-display-name-miscased
+									displayName: 'Interval Between Requests (ms)',
+									name: 'requestInterval',
+									type: 'number',
+									displayOptions: {
+										hide: {
+											paginationMode: ['off'],
+										},
+									},
+									default: 0,
+									description: 'Time in milliseconds to wait between requests',
+									hint: 'At 0 no delay will be added',
+									typeOptions: {
+										minValue: 0,
+									},
 								},
 							],
 						},
