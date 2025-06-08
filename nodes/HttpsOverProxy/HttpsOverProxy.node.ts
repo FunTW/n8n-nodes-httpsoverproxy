@@ -1351,7 +1351,7 @@ export function getResolvedValue(
 	const node = executeFunctions.getNode();
 
 	if (
-		typeof parameterValue === 'object' ||
+		(typeof parameterValue === 'object' && parameterValue !== null) ||
 		(typeof parameterValue === 'string' && parameterValue.charAt(0) === '=')
 	) {
 		try {
@@ -1481,7 +1481,7 @@ async function handlePagination(
 		completeExpression: string;
 		limitPagesFetched: boolean;
 		maxRequests: string;
-		requestInterval: number;
+		requestInterval: number | string;
 	},
 	returnItems: INodeExecutionData[]
 ): Promise<void> {
@@ -1720,8 +1720,25 @@ async function handlePagination(
 			}
 			
 			// 如果設置了請求間隔，等待指定時間
-			if (pagination.requestInterval > 0 && continueRequests) {
-				await sleep(pagination.requestInterval);
+			if (pagination.requestInterval && continueRequests) {
+				// 評估請求間隔表達式（支援動態計算）
+				const evaluatedInterval = getResolvedValue(
+					executeFunctions,
+					pagination.requestInterval,
+					0,
+					runIndex,
+					executeData,
+					additionalKeys,
+				);
+				
+				const intervalMs = typeof evaluatedInterval === 'string' ? 
+					parseInt(evaluatedInterval, 10) : 
+					Number(evaluatedInterval);
+				
+				if (intervalMs > 0) {
+					console.log(`Waiting ${intervalMs}ms before next request...`);
+					await sleep(intervalMs);
+				}
 			}
 			
 		} catch (error) {

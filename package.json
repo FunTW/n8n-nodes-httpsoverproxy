@@ -30,6 +30,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:node-reference": "jest tests/__tests__/nodes/HttpsOverProxy/node-reference.test.ts",
+    "test:interval-expression": "jest tests/__tests__/nodes/HttpsOverProxy/interval-expression.test.ts",
     "prepublishOnly": "npm run build && npm run lint && npm run test"
   },
   "files": [
