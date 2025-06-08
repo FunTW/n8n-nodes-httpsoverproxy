@@ -25,7 +25,7 @@ function ensureIcons(cb) {
     fs.copyFileSync(sourceSvg, targetSvg);
     console.log('SVG 圖標已複製到節點子目錄');
   } else {
-    console.error('錯誤：找不到源 SVG 文件');
+    console.log('注意：找不到源 SVG 文件，但可能已經存在於目標位置');
   }
   
   cb();
@@ -47,31 +47,39 @@ function buildCredentials() {
   return Promise.resolve();
 }
 
-// 將 JS/TS 編譯後的文件移動到節點子目錄
-function moveCompiledFiles() {
-  // 確保目標目錄存在
-  if (!fs.existsSync(path.join(__dirname, 'dist', 'nodes', 'HttpsOverProxy'))) {
-    fs.mkdirSync(path.join(__dirname, 'dist', 'nodes', 'HttpsOverProxy'), { recursive: true });
+// 檢查編譯後的文件是否已經在正確位置
+function verifyCompiledFiles(cb) {
+  const targetDir = path.join(__dirname, 'dist', 'nodes', 'HttpsOverProxy');
+  const requiredFiles = [
+    'HttpsOverProxy.node.js',
+    'description.js',
+    'optimizeResponse.js'
+  ];
+  
+  let allFilesExist = true;
+  
+  requiredFiles.forEach(file => {
+    const filePath = path.join(targetDir, file);
+    if (!fs.existsSync(filePath)) {
+      console.error(`錯誤：找不到必要的檔案 ${filePath}`);
+      allFilesExist = false;
+    } else {
+      console.log(`✓ 檔案存在：${file}`);
+    }
+  });
+  
+  if (allFilesExist) {
+    console.log('✓ 所有必要的編譯檔案都已存在於正確位置');
+  } else {
+    console.error('✗ 部分必要檔案缺失，請檢查 TypeScript 編譯是否成功');
   }
-
-  // 移動所有相關文件到子目錄
-  return src([
-    './dist/HttpsOverProxy.node.js',
-    './dist/HttpsOverProxy.node.d.ts',
-    './dist/HttpsOverProxy.node.js.map',
-    './dist/description.js',
-    './dist/description.d.ts',
-    './dist/description.js.map',
-    './dist/optimizeResponse.js',
-    './dist/optimizeResponse.d.ts',
-    './dist/optimizeResponse.js.map'
-  ])
-    .pipe(dest('./dist/nodes/HttpsOverProxy/'));
+  
+  cb();
 }
 
-// 清理額外的文件
-function cleanupFiles(cb) {
-  // 在移動文件後刪除源目錄中的重複文件
+// 清理不需要的文件（如果存在於根目錄）
+function cleanupRootFiles(cb) {
+  // 清理可能存在於根目錄的重複文件
   const filesToDelete = [
     './dist/HttpsOverProxy.node.js',
     './dist/HttpsOverProxy.node.d.ts',
@@ -84,13 +92,21 @@ function cleanupFiles(cb) {
     './dist/optimizeResponse.js.map'
   ];
   
+  let deletedCount = 0;
   filesToDelete.forEach(file => {
     if (fs.existsSync(file)) {
       fs.unlinkSync(file);
+      deletedCount++;
+      console.log(`已刪除重複檔案：${file}`);
     }
   });
   
-  // 調用回調函數表示任務完成
+  if (deletedCount === 0) {
+    console.log('✓ 沒有需要清理的重複檔案');
+  } else {
+    console.log(`✓ 已清理 ${deletedCount} 個重複檔案`);
+  }
+  
   cb();
 }
 
@@ -98,6 +114,6 @@ exports['build:icons'] = buildIcons;
 exports['build:ensure-icons'] = ensureIcons;
 exports['build:assets'] = buildOtherAssets;
 exports['build:credentials'] = buildCredentials;
-exports['build:move'] = moveCompiledFiles;
-exports['build:cleanup'] = cleanupFiles;
-exports['build:all'] = series(buildIcons, buildOtherAssets, buildCredentials, moveCompiledFiles, ensureIcons, cleanupFiles); 
+exports['build:verify'] = verifyCompiledFiles;
+exports['build:cleanup'] = cleanupRootFiles;
+exports['build:all'] = series(buildIcons, buildOtherAssets, buildCredentials, verifyCompiledFiles, ensureIcons, cleanupRootFiles); 
