@@ -11,11 +11,12 @@ tests/
 └── __tests__/
     └── nodes/
         └── HttpsOverProxy/
-            ├── integration.test.ts      # 整合測試
-            ├── utils.test.ts           # 工具函數測試
-            ├── batch.test.ts           # 批次處理測試
-            ├── node-reference.test.ts  # 節點引用功能測試
-            └── interval-expression.test.ts # 動態請求間隔測試
+            ├── integration.test.ts         # 整合測試
+            ├── utils.test.ts              # 工具函數測試
+            ├── batch.test.ts              # 批次處理測試
+            ├── node-reference.test.ts     # 節點引用功能測試
+            ├── interval-expression.test.ts # 動態請求間隔測試
+            └── max-pages-expression.test.ts # Max Pages 表達式測試
 ```
 
 ## 測試類別
@@ -57,6 +58,16 @@ tests/
 - 間隔時間轉換邏輯
 - 錯誤處理和性能測試
 
+### 6. Max Pages 表達式測試 (max-pages-expression.test.ts) ⭐ 新增
+測試 Max Pages 表達式評估功能，包括：
+- 基於回應總數：`{{ $response.body.parseJson().totalsize }}`
+- 總數減去固定值：`{{ $response.body.parseJson().totalsize - 1516 }}`
+- 複雜計算：`{{ Math.ceil($response.body.parseJson().totalsize / 50) }}`
+- 條件判斷：`{{ Math.max($response.body.parseJson().totalsize / 100, 5) }}`
+- 組合 $pageCount 和 $response：`{{ $response.body.parseJson().totalPages - $pageCount }}`
+- 固定數值和字串數字處理
+- 錯誤處理和性能測試
+
 ## 運行測試
 
 ### 運行所有測試
@@ -71,6 +82,9 @@ npm run test:node-reference
 
 # 動態請求間隔測試
 npm run test:interval-expression
+
+# Max Pages 表達式測試
+npm run test:max-pages-expression
 
 # 整合測試
 npm test -- integration.test.ts

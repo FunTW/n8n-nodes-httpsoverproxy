@@ -1159,7 +1159,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 									},
 									default: '100',
 									description: 'Maximum amount of request to be make. Supports expressions like {{ $response.body.parseJson().totalsize }}',
-									hint: 'You can use $response variables here, e.g., {{ $response.body.parseJson().totalsize }}',
+									hint: 'Expression preview shows raw text, but will evaluate correctly during execution. Examples: {{ $response.body.parseJson().totalsize }}, {{ $pageCount * 10 }}',
 								},
 								{
 									displayName: 'Interval Between Requests (ms)',
@@ -1171,8 +1171,8 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 										},
 									},
 									default: 0,
-									description: 'Time in milliseconds to wait between requests',
-									hint: 'At 0 no delay will be added',
+									description: 'Time in milliseconds to wait between requests. Supports expressions like {{ Math.floor(Math.random() * 4501) + 10000 }}',
+									hint: 'Expression preview shows raw text, but will evaluate correctly. Examples: {{ Math.random() * 5000 + 1000 }}, {{ $pageCount * 1000 + 5000 }}',
 									typeOptions: {
 										minValue: 0,
 									},
