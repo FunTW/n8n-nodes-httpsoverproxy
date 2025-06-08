@@ -18,6 +18,95 @@ import FormData from 'form-data';
 import { httpsOverProxyDescription } from './description';
 import { configureResponseOptimizer } from './optimizeResponse';
 
+// Connection pool management for better performance
+class ConnectionPoolManager {
+	private static instance: ConnectionPoolManager;
+	private httpAgents: Map<string, http.Agent> = new Map();
+	private httpsAgents: Map<string, https.Agent> = new Map();
+	private proxyAgents: Map<string, HttpsProxyAgent<string>> = new Map();
+
+	static getInstance(): ConnectionPoolManager {
+		if (!ConnectionPoolManager.instance) {
+			ConnectionPoolManager.instance = new ConnectionPoolManager();
+		}
+		return ConnectionPoolManager.instance;
+	}
+
+	getHttpAgent(options: { 
+		timeout?: number; 
+		keepAlive?: boolean;
+		maxSockets?: number;
+		maxFreeSockets?: number;
+	} = {}): http.Agent {
+		const key = `http_${options.timeout || 30000}_${options.keepAlive !== false}_${options.maxSockets || 50}_${options.maxFreeSockets || 10}`;
+		
+		if (!this.httpAgents.has(key)) {
+			this.httpAgents.set(key, new http.Agent({
+				keepAlive: options.keepAlive !== false,
+				timeout: options.timeout || 30000,
+				maxSockets: options.maxSockets || 50, // Maximum concurrent connections per host
+				maxFreeSockets: options.maxFreeSockets || 10, // Maximum idle connections per host
+			}));
+		}
+		
+		return this.httpAgents.get(key)!;
+	}
+
+	getHttpsAgent(options: { 
+		timeout?: number; 
+		keepAlive?: boolean; 
+		rejectUnauthorized?: boolean;
+		maxSockets?: number;
+		maxFreeSockets?: number;
+	} = {}): https.Agent {
+		const key = `https_${options.timeout || 30000}_${options.keepAlive !== false}_${options.rejectUnauthorized !== false}_${options.maxSockets || 50}_${options.maxFreeSockets || 10}`;
+		
+		if (!this.httpsAgents.has(key)) {
+			this.httpsAgents.set(key, new https.Agent({
+				keepAlive: options.keepAlive !== false,
+				timeout: options.timeout || 30000,
+				maxSockets: options.maxSockets || 50, // Maximum concurrent connections per host
+				maxFreeSockets: options.maxFreeSockets || 10, // Maximum idle connections per host
+				rejectUnauthorized: options.rejectUnauthorized !== false,
+			}));
+		}
+		
+		return this.httpsAgents.get(key)!;
+	}
+
+	getProxyAgent(proxyUrl: string, options: {
+		timeout?: number;
+		rejectUnauthorized?: boolean;
+		maxSockets?: number;
+		maxFreeSockets?: number;
+	} = {}): HttpsProxyAgent<string> {
+		const key = `proxy_${proxyUrl}_${options.timeout || 30000}_${options.rejectUnauthorized !== false}_${options.maxSockets || 50}_${options.maxFreeSockets || 10}`;
+		
+		if (!this.proxyAgents.has(key)) {
+			this.proxyAgents.set(key, new HttpsProxyAgent(proxyUrl, {
+				rejectUnauthorized: options.rejectUnauthorized !== false,
+				timeout: options.timeout || 30000,
+				maxSockets: options.maxSockets || 50, // Maximum concurrent connections per host
+				maxFreeSockets: options.maxFreeSockets || 10, // Maximum idle connections per host
+			}));
+		}
+		
+		return this.proxyAgents.get(key)!;
+	}
+
+	// Clean up unused agents periodically
+	cleanup(): void {
+		// Clear all agents to free memory
+		this.httpAgents.forEach(agent => agent.destroy());
+		this.httpsAgents.forEach(agent => agent.destroy());
+		this.proxyAgents.forEach(agent => agent.destroy());
+		
+		this.httpAgents.clear();
+		this.httpsAgents.clear();
+		this.proxyAgents.clear();
+	}
+}
+
 // Helper function to process parameters for multipart-form-data and file uploads
 async function parametersToKeyValue(
 	executeFunctions: IExecuteFunctions,
@@ -71,6 +160,14 @@ export class HttpsOverProxy implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnItems: INodeExecutionData[] = [];
+		const connectionPool = ConnectionPoolManager.getInstance();
+		
+		// Get connection pool settings
+		const connectionPoolSettings = this.getNodeParameter('options.connectionPool.settings', 0, {}) as {
+			keepAlive?: boolean;
+			maxSockets?: number;
+			maxFreeSockets?: number;
+		};
 
 		// Add debug logs to check node parameters
 		try {
@@ -276,10 +373,10 @@ export class HttpsOverProxy implements INodeType {
 						requestOptions.signal = controller.signal;
 						
 						// Set timeout timer
-						const timeoutMs = options.timeout || 30000;
+						const requestTimeoutMs = options.timeout || 30000;
 						timeoutId = setTimeout(() => {
 							// Modified: Add custom error message when canceling
-							const timeoutError = new Error(`Request canceled due to timeout (${timeoutMs}ms). This was triggered by the node's timeout setting. If you need more time to complete the request, please increase the timeout value.`);
+							const timeoutError = new Error(`Request canceled due to timeout (${requestTimeoutMs}ms). This was triggered by the node's timeout setting. If you need more time to complete the request, please increase the timeout value.`);
 							// Use interface to extend error
 							const customError = timeoutError as Error & { code: string };
 							customError.code = 'TIMEOUT'; // Use custom error code
@@ -288,7 +385,7 @@ export class HttpsOverProxy implements INodeType {
 							// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 							// @ts-ignore
 							controller.abort(customError); // Pass custom error when aborting
-						}, timeoutMs);
+						}, requestTimeoutMs);
 						
 						// Proxy authentication if needed
 						let proxyAuthHeader = '';
@@ -709,8 +806,9 @@ export class HttpsOverProxy implements INodeType {
 							}
 						}
 						
-						// Configure proxy
+						// Configure proxy with connection pooling
 						const allowUnauthorizedCerts = options.allowUnauthorizedCerts || false;
+						const timeoutMs = options.timeout || 30000;
 						
 						// Only use proxy if enabled
 						if (useProxy && cleanProxyHost) {
@@ -721,10 +819,12 @@ export class HttpsOverProxy implements INodeType {
 									? `http://${proxySettings.proxyUsername}:${proxySettings.proxyPassword}@${cleanProxyHost}:${proxyPort}`
 									: `http://${cleanProxyHost}:${proxyPort}`;
 								
-								// Modified: Ensure rejectUnauthorized option is correctly applied to proxy
-								const httpsProxyAgent = new HttpsProxyAgent(proxyUrl, {
+								// Use connection pool for proxy agent
+								const httpsProxyAgent = connectionPool.getProxyAgent(proxyUrl, {
 									rejectUnauthorized: !allowUnauthorizedCerts,
-									timeout: options.timeout || 30000,
+									timeout: timeoutMs,
+									maxSockets: connectionPoolSettings.maxSockets,
+									maxFreeSockets: connectionPoolSettings.maxFreeSockets,
 								});
 								
 								// Apply proxy agent to request
@@ -738,9 +838,12 @@ export class HttpsOverProxy implements INodeType {
 								// @ts-ignore
 								process.env.NODE_TLS_REJECT_UNAUTHORIZED = allowUnauthorizedCerts ? '0' : '1';
 							} else {
-								// Use HTTP proxy
-								const httpAgent = new http.Agent({
-									timeout: options.timeout || 30000,
+								// Use HTTP proxy with connection pooling
+								const httpAgent = connectionPool.getHttpAgent({
+									timeout: timeoutMs,
+									keepAlive: connectionPoolSettings.keepAlive !== false,
+									maxSockets: connectionPoolSettings.maxSockets,
+									maxFreeSockets: connectionPoolSettings.maxFreeSockets,
 								});
 								
 								// Set proxy
@@ -752,12 +855,26 @@ export class HttpsOverProxy implements INodeType {
 								
 								requestOptions.httpAgent = httpAgent;
 							}
-						} else if (allowUnauthorizedCerts) {
-							// If not using proxy but need to ignore SSL issues
-							requestOptions.httpsAgent = new https.Agent({
-								rejectUnauthorized: !allowUnauthorizedCerts,
-								timeout: options.timeout || 30000,
-							});
+						} else {
+							// Configure agents for direct connections (no proxy)
+							if (url.startsWith('https:')) {
+								// Use HTTPS agent with connection pooling
+								requestOptions.httpsAgent = connectionPool.getHttpsAgent({
+									timeout: timeoutMs,
+									keepAlive: connectionPoolSettings.keepAlive !== false,
+									rejectUnauthorized: !allowUnauthorizedCerts,
+									maxSockets: connectionPoolSettings.maxSockets,
+									maxFreeSockets: connectionPoolSettings.maxFreeSockets,
+								});
+							} else {
+								// Use HTTP agent with connection pooling
+								requestOptions.httpAgent = connectionPool.getHttpAgent({
+									timeout: timeoutMs,
+									keepAlive: connectionPoolSettings.keepAlive !== false,
+									maxSockets: connectionPoolSettings.maxSockets,
+									maxFreeSockets: connectionPoolSettings.maxFreeSockets,
+								});
+							}
 						}
 						
 						// Set response type

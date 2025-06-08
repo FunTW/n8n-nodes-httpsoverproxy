@@ -874,6 +874,53 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					default: 30000,
 					description: 'Request timeout in milliseconds (30000 = 30 seconds). Increase this value if the proxy or target website is slow to respond.',
 				},
+				{
+					displayName: 'Connection Pool',
+					name: 'connectionPool',
+					type: 'fixedCollection',
+					placeholder: 'Add Connection Pool Settings',
+					default: {
+						settings: {},
+					},
+					description: 'Configure HTTP connection pooling for better performance when making multiple requests',
+					options: [
+						{
+							name: 'settings',
+							displayName: 'Settings',
+							values: [
+								{
+									displayName: 'Enable Keep-Alive',
+									name: 'keepAlive',
+									type: 'boolean',
+									default: true,
+									description: 'Whether to keep connections alive for reuse. Improves performance for multiple requests to the same host.',
+								},
+								{
+									displayName: 'Max Sockets per Host',
+									name: 'maxSockets',
+									type: 'number',
+									typeOptions: {
+										minValue: 1,
+										maxValue: 1000,
+									},
+									default: 50,
+									description: 'Maximum number of concurrent connections per host. Higher values allow more parallel requests but use more resources.',
+								},
+								{
+									displayName: 'Max Free Sockets per Host',
+									name: 'maxFreeSockets',
+									type: 'number',
+									typeOptions: {
+										minValue: 0,
+										maxValue: 100,
+									},
+									default: 10,
+									description: 'Maximum number of idle connections to keep open per host. Higher values reduce connection overhead but use more memory.',
+								},
+							],
+						},
+					],
+				},
 
 				{
 					displayName: 'Pagination',
