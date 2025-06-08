@@ -6,13 +6,15 @@ import {
 	NodeOperationError,
 	sleep,
 	BINARY_ENCODING,
+	IDataObject,
+	IWorkflowDataProxyAdditionalKeys,
+	NodeParameterValueType,
 } from 'n8n-workflow';
 
 import axios, { AxiosRequestConfig } from 'axios';
 import * as https from 'https';
 import * as http from 'http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { IDataObject } from 'n8n-workflow';
 import type { Readable } from 'stream';
 import FormData from 'form-data';
 import { httpsOverProxyDescription } from './description';
@@ -160,6 +162,8 @@ export class HttpsOverProxy implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnItems: INodeExecutionData[] = [];
+
+
 		const connectionPool = ConnectionPoolManager.getInstance();
 		
 		// Get connection pool settings
@@ -252,7 +256,7 @@ export class HttpsOverProxy implements INodeType {
 			statusCodesWhenComplete: string;
 			completeExpression: string;
 			limitPagesFetched: boolean;
-			maxRequests: number;
+			maxRequests: string;
 			requestInterval: number;
 		};
 
@@ -1041,7 +1045,7 @@ export class HttpsOverProxy implements INodeType {
 								const timeout = currentOptions.timeout || 30000;
 								
 								// Modified: Don't use "canceled" as error message, provide detailed timeout explanation
-								errorMessage = `Request canceled due to timeout (${timeout}ms). This was triggered by the node's timeout setting. If you need more time to complete the request, please increase the timeout value.`;
+								errorMessage = `Request canceled due to timeout (${timeout}ms). This was triggered by the node's timeout setting. If you need more time to complete the request, please increase the timeout value.`
 								error.message = errorMessage; // Replace original error message
 								error.code = 'TIMEOUT'; // Reset error code to TIMEOUT
 								
@@ -1332,11 +1336,125 @@ function deepMerge(target: any, source: any): any {
 	return target;
 }
 
-// 處理分頁的輔助函數，與 HttpRequestV3 相容
+// 添加表達式評估輔助函數
+function getResolvedValue(
+	executeFunctions: IExecuteFunctions,
+	parameterValue: NodeParameterValueType,
+	itemIndex: number,
+	runIndex: number,
+	executeData: any,
+	additionalKeys?: IWorkflowDataProxyAdditionalKeys,
+	returnObjectAsString = false,
+): NodeParameterValueType {
+	const mode = 'internal' as const;
+	const runExecutionData = null;
+	const connectionInputData = executeFunctions.getInputData();
+	const node = executeFunctions.getNode();
+
+	if (
+		typeof parameterValue === 'object' ||
+		(typeof parameterValue === 'string' && parameterValue.charAt(0) === '=')
+	) {
+		// 使用 n8n 的 workflow expression 引擎來評估表達式
+		// 這樣可以正確處理 additionalKeys 中的 $response 和 $pageCount
+		const workflow = (executeFunctions as any).workflow;
+		if (workflow && workflow.expression) {
+			return workflow.expression.getParameterValue(
+				parameterValue,
+				runExecutionData,
+				runIndex,
+				itemIndex,
+				node.name,
+				connectionInputData,
+				mode,
+				additionalKeys ?? {},
+				executeData,
+				returnObjectAsString,
+			);
+		} else {
+			// 回退到基本的表達式評估
+			// 但首先嘗試手動處理 $response 和 $pageCount 變數
+			if (typeof parameterValue === 'string' && additionalKeys) {
+				let processedValue = parameterValue;
+				
+				// 手動替換 $response 變數
+				if (additionalKeys.$response && processedValue.includes('$response')) {
+					const responseStr = JSON.stringify(additionalKeys.$response);
+					processedValue = processedValue.replace(/\$response/g, responseStr);
+				}
+				
+				// 手動替換 $pageCount 變數
+				if (additionalKeys.$pageCount !== undefined && processedValue.includes('$pageCount')) {
+					processedValue = processedValue.replace(/\$pageCount/g, String(additionalKeys.$pageCount));
+				}
+				
+				// 如果有替換發生，嘗試評估修改後的表達式
+				if (processedValue !== parameterValue) {
+					try {
+						return executeFunctions.evaluateExpression(processedValue, itemIndex);
+					} catch (error) {
+						console.warn('Failed to evaluate modified expression:', error);
+					}
+				}
+			}
+			
+			return executeFunctions.evaluateExpression(
+				parameterValue as string,
+				itemIndex,
+			);
+		}
+	}
+
+	return parameterValue;
+}
+
+// 添加一個專門用於處理 HTTP 節點變數的函數
+export function createHttpNodeAdditionalKeys(response?: any, pageCount: number = 0): Record<string, any> {
+	// 處理回應體 - 確保與 n8n HttpRequest 節點的行為一致
+	let responseBody = response?.body;
+	
+	// 重要：為了支援 parseJson() 方法，我們需要確保 body 是字串格式
+	// 這與 n8n 原生 HttpRequest 節點的行為一致
+	
+	if (responseBody === undefined || responseBody === null) {
+		responseBody = '{}';
+	} else if (typeof responseBody === 'object') {
+		// 如果 body 是物件，將其轉換為 JSON 字串
+		// 這樣用戶可以使用 parseJson() 方法
+		try {
+			responseBody = JSON.stringify(responseBody);
+		} catch (_error) {
+			// 如果無法序列化，設為空物件字串
+			responseBody = '{}';
+		}
+	} else if (typeof responseBody !== 'string') {
+		// 如果不是字串也不是物件，轉換為字串
+		responseBody = String(responseBody);
+	}
+	// 如果已經是字串，保持不變
+	
+	return {
+		$response: {
+			statusCode: response?.statusCode || 200,
+			statusMessage: response?.statusMessage || 'OK',
+			headers: response?.headers || {},
+			// 確保 body 是字串格式，支援 parseJson() 方法
+			body: responseBody
+		},
+		$pageCount: pageCount,
+		$request: {
+			headers: {},
+			body: {},
+			qs: {}
+		}
+	};
+}
+
 async function handlePagination(
 	executeFunctions: IExecuteFunctions,
 	pagination: {
 		paginationMode: 'off' | 'updateAParameterInEachRequest' | 'responseContainsNextURL';
+		
 		nextURL?: string;
 		parameters: {
 			parameters: Array<{
@@ -1349,15 +1467,18 @@ async function handlePagination(
 		statusCodesWhenComplete: string;
 		completeExpression: string;
 		limitPagesFetched: boolean;
-		maxRequests: number;
+		maxRequests: string;
 		requestInterval: number;
 	},
 	returnItems: INodeExecutionData[]
 ): Promise<void> {
 	// 實作完整的分頁邏輯
-	let requestCount = 0;
 	let continueRequests = true;
+	let requestCount = 0; // 初始化請求計數器
 	
+	// 初始化 additionalKeys，包含 $response 和 $pageCount（與 n8n 原生行為一致，從 0 開始）
+	let additionalKeys = createHttpNodeAdditionalKeys();
+
 	// 構建分頁條件表達式
 	let continueExpression = '={{false}}';
 	if (pagination.paginationCompleteWhen === 'receiveSpecificStatusCodes') {
@@ -1373,7 +1494,7 @@ async function handlePagination(
 		continueExpression =
 			'={{ Array.isArray($response.body) ? $response.body.length : !!$response.body }}';
 	} else {
-		// Other
+		// Other - 支援自訂表達式
 		if (!pagination.completeExpression.length || pagination.completeExpression[0] !== '=') {
 			throw new NodeOperationError(executeFunctions.getNode(), 'Invalid or empty Complete Expression');
 		}
@@ -1423,20 +1544,38 @@ async function handlePagination(
 	}
 
 	// 實作分頁請求邏輯
+	const runIndex = 0;
+	const executeData = {
+		data: {},
+		node: executeFunctions.getNode(),
+		source: null,
+	};
+
 	while (continueRequests) {
-		// 檢查是否達到最大請求數限制
-		if (pagination.limitPagesFetched && requestCount >= pagination.maxRequests) {
-			console.log(`Reached maximum number of requests: ${pagination.maxRequests}`);
-			break;
+		// 檢查是否達到最大請求數限制 - 支援表達式評估
+		if (pagination.limitPagesFetched) {
+			const maxRequests = getResolvedValue(
+				executeFunctions,
+				pagination.maxRequests,
+				0,
+				runIndex,
+				executeData,
+				additionalKeys,
+			) as number;
+			
+			if (maxRequests && requestCount >= maxRequests) {
+				console.log(`Reached maximum number of requests: ${maxRequests} (evaluated from: ${pagination.maxRequests})`);
+				break;
+			}
 		}
 
 		try {
 			// 執行真實的 HTTP 請求
-			console.log(`Executing pagination request ${requestCount + 1}`);
+			console.log(`Executing pagination request ${requestCount}`);
 			console.log('Continue expression:', continueExpression);
 			console.log('Pagination request data:', paginationRequestData);
 			
-			// 構建分頁覆蓋參數
+			// 構建分頁覆蓋參數，使用表達式評估
 			const paginationOverrides: {
 				url?: string;
 				queryParams?: Record<string, any>;
@@ -1445,20 +1584,61 @@ async function handlePagination(
 			} = {};
 			
 			if (pagination.paginationMode === 'updateAParameterInEachRequest') {
-				// 更新參數模式
+				// 更新參數模式 - 使用表達式評估
 				if (paginationRequestData.qs) {
-					paginationOverrides.queryParams = paginationRequestData.qs;
+					paginationOverrides.queryParams = {};
+					for (const [key, value] of Object.entries(paginationRequestData.qs)) {
+						const evaluatedValue = getResolvedValue(
+							executeFunctions,
+							value as string,
+							0,
+							runIndex,
+							executeData,
+							additionalKeys,
+						);
+						paginationOverrides.queryParams[key] = evaluatedValue;
+					}
 				}
 				if (paginationRequestData.headers) {
-					paginationOverrides.headers = paginationRequestData.headers;
+					paginationOverrides.headers = {};
+					for (const [key, value] of Object.entries(paginationRequestData.headers)) {
+						const evaluatedValue = getResolvedValue(
+							executeFunctions,
+							value as string,
+							0,
+							runIndex,
+							executeData,
+							additionalKeys,
+						);
+						paginationOverrides.headers[key] = evaluatedValue;
+					}
 				}
 				if (paginationRequestData.body) {
-					paginationOverrides.body = paginationRequestData.body;
+					paginationOverrides.body = {};
+					for (const [key, value] of Object.entries(paginationRequestData.body)) {
+						const evaluatedValue = getResolvedValue(
+							executeFunctions,
+							value as string,
+							0,
+							runIndex,
+							executeData,
+							additionalKeys,
+						);
+						paginationOverrides.body[key] = evaluatedValue;
+					}
 				}
 			} else if (pagination.paginationMode === 'responseContainsNextURL') {
-				// 下一個 URL 模式
+				// 下一個 URL 模式 - 使用表達式評估
 				if (paginationRequestData.url) {
-					paginationOverrides.url = paginationRequestData.url;
+					const evaluatedUrl = getResolvedValue(
+						executeFunctions,
+						paginationRequestData.url,
+						0,
+						runIndex,
+						executeData,
+						additionalKeys,
+					);
+					paginationOverrides.url = evaluatedUrl as string;
 				}
 			}
 			
@@ -1469,18 +1649,42 @@ async function handlePagination(
 			// 從結果中提取回應數據
 			const response = (result.json as any).$response;
 			
-			// 評估繼續條件
+			// 更新 additionalKeys 中的 $response 和 $pageCount（下一次請求的頁數）
+			requestCount++;
+			additionalKeys = createHttpNodeAdditionalKeys(response, requestCount);
+			
+			// 評估繼續條件 - 使用表達式評估
 			if (pagination.paginationCompleteWhen === 'responseIsEmpty') {
-				continueRequests = Array.isArray(response.body) ? response.body.length > 0 : !!response.body;
+				const evaluatedCondition = getResolvedValue(
+					executeFunctions,
+					'={{ Array.isArray($response.body) ? $response.body.length : !!$response.body }}',
+					0,
+					runIndex,
+					executeData,
+					additionalKeys,
+				);
+				continueRequests = !!evaluatedCondition;
 			} else if (pagination.paginationCompleteWhen === 'receiveSpecificStatusCodes') {
-				const statusCodesWhenCompleted = pagination.statusCodesWhenComplete
-					.split(',')
-					.map((item) => parseInt(item.trim()));
-				continueRequests = !statusCodesWhenCompleted.includes(response.statusCode);
+				const evaluatedCondition = getResolvedValue(
+					executeFunctions,
+					continueExpression,
+					0,
+					runIndex,
+					executeData,
+					additionalKeys,
+				);
+				continueRequests = !!evaluatedCondition;
 			} else {
-				// 對於 'other' 類型，需要評估自訂表達式
-				// 這裡簡化處理，實際實作時需要使用 n8n 的表達式評估器
-				continueRequests = false;
+				// 對於 'other' 類型，評估自訂表達式
+				const evaluatedCondition = getResolvedValue(
+					executeFunctions,
+					continueExpression,
+					0,
+					runIndex,
+					executeData,
+					additionalKeys,
+				);
+				continueRequests = !!evaluatedCondition;
 			}
 			
 			// 將結果添加到返回項目中
@@ -1493,20 +1697,11 @@ async function handlePagination(
 			// 更新分頁參數以準備下一次請求
 			if (continueRequests) {
 				if (pagination.paginationMode === 'updateAParameterInEachRequest') {
-					// 更新分頁參數
-					updatePaginationParameters(paginationRequestData, response, pagination.parameters.parameters);
+					// 參數已經在上面的迴圈中更新了
 				} else if (pagination.paginationMode === 'responseContainsNextURL') {
-					// 提取下一個 URL
-					const nextUrl = extractNextUrlFromResponse(response, pagination.nextURL);
-					if (nextUrl) {
-						paginationRequestData.url = nextUrl;
-					} else {
-						continueRequests = false;
-					}
+					// 下一個 URL 已經在上面評估了
 				}
 			}
-			
-			requestCount++;
 			
 			// 如果設置了請求間隔，等待指定時間
 			if (pagination.requestInterval > 0 && continueRequests) {
@@ -1523,98 +1718,6 @@ async function handlePagination(
 	}
 	
 	console.log(`Pagination completed after ${requestCount} requests`);
-}
-
-// 更新分頁參數的輔助函數
-function updatePaginationParameters(
-	paginationOverrides: any,
-	response: any,
-	parameters: Array<{
-		type: 'body' | 'headers' | 'qs';
-		name: string;
-		value: string;
-	}>
-): void {
-	for (const parameter of parameters) {
-		const { type, name, value } = parameter;
-		
-		// 評估參數值（可能包含表達式）
-		let evaluatedValue = value;
-		
-		// 簡化的表達式評估（實際實作中應使用 n8n 的表達式評估器）
-		if (value.includes('$response')) {
-			// 處理 $response 相關的表達式
-			if (value.includes('$response.body')) {
-				// 例如：$response.body.nextPage
-				const bodyPath = value.replace('$response.body.', '');
-				const pathParts = bodyPath.split('.');
-				let currentValue = response.body;
-				
-				for (const part of pathParts) {
-					if (currentValue && typeof currentValue === 'object' && part in currentValue) {
-						currentValue = currentValue[part];
-					} else {
-						currentValue = undefined;
-						break;
-					}
-				}
-				
-				evaluatedValue = currentValue;
-			} else if (value.includes('$response.headers')) {
-				// 例如：$response.headers.nextPageUrl
-				const headerName = value.replace('$response.headers.', '');
-				evaluatedValue = response.headers[headerName] || response.headers[headerName.toLowerCase()];
-			}
-		}
-		
-		// 更新對應的參數類型
-		if (type === 'qs') {
-			if (!paginationOverrides.queryParams) {
-				paginationOverrides.queryParams = {};
-			}
-			paginationOverrides.queryParams[name] = evaluatedValue;
-		} else if (type === 'headers') {
-			if (!paginationOverrides.headers) {
-				paginationOverrides.headers = {};
-			}
-			paginationOverrides.headers[name] = evaluatedValue;
-		} else if (type === 'body') {
-			if (!paginationOverrides.body) {
-				paginationOverrides.body = {};
-			}
-			paginationOverrides.body[name] = evaluatedValue;
-		}
-	}
-}
-
-// 從回應中提取下一個 URL 的輔助函數
-function extractNextUrlFromResponse(response: any, nextUrlExpression?: string): string | null {
-	if (!nextUrlExpression) {
-		return null;
-	}
-	
-	// 簡化的表達式評估
-	if (nextUrlExpression.includes('$response.body')) {
-		const bodyPath = nextUrlExpression.replace('$response.body.', '');
-		const pathParts = bodyPath.split('.');
-		let currentValue = response.body;
-		
-		for (const part of pathParts) {
-			if (currentValue && typeof currentValue === 'object' && part in currentValue) {
-				currentValue = currentValue[part];
-			} else {
-				return null;
-			}
-		}
-		
-		return typeof currentValue === 'string' ? currentValue : null;
-	} else if (nextUrlExpression.includes('$response.headers')) {
-		const headerName = nextUrlExpression.replace('$response.headers.', '');
-		const headerValue = response.headers[headerName] || response.headers[headerName.toLowerCase()];
-		return typeof headerValue === 'string' ? headerValue : null;
-	}
-	
-	return null;
 }
 
 // 通用的 HTTP 請求執行函數
@@ -1708,7 +1811,7 @@ async function executeHttpRequest(
 			url: baseUrl,
 			headers: {},
 			timeout: options.timeout || 30000,
-			proxy: false,
+			proxy: false, // Disable axios built-in proxy handling
 		};
 		
 		// 使用 AbortController 控制超時
@@ -2582,3 +2685,4 @@ export function curlToNodeParameters(curlData: ReturnType<typeof parseCurlComman
 
 	return nodeParams;
 }
+

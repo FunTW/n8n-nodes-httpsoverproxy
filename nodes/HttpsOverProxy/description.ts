@@ -7,12 +7,29 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 	group: ['output'],
 	version: 1,
 	subtitle: '={{$parameter["method"] + ": " + $parameter["url"]}}',
-	description: 'Make HTTPS requests through HTTP proxy',
+	description: 'Make HTTPS requests through HTTP proxy. Supports $response, $request, and $pageCount variables in pagination expressions.',
 	defaults: {
 		name: 'HTTPS Over Proxy',
 	},
 	inputs: ['main'],
 	outputs: ['main'],
+	// 添加標記來表示這是一個 HTTP 類型的節點
+	codex: {
+		categories: ['HTTP'],
+		subcategories: {
+			HTTP: ['Request'],
+		},
+		resources: {
+			primaryDocumentation: [
+				{
+					url: 'https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/',
+				},
+			],
+		},
+	},
+	// 添加特殊屬性來標識這個節點支援 HTTP 變數
+	// @ts-ignore - 這是一個自定義屬性，用於前端識別
+	__httpNodeVariables: true,
 	credentials: [
 		{
 			name: 'httpBasicAuth',
@@ -968,7 +985,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 								},
 								{
 									displayName:
-										'Use the $response variables to access the data of the previous response. Refer to the <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/#pagination/?utm_source=n8n_app&utm_medium=node_settings_modal-credential_link&utm_campaign=n8n-nodes-base.httpRequest" target="_blank">docs</a> for more info about pagination/',
+										'⚠️ Note: $response variables will show [undefined] in the UI preview, but work correctly during execution. Available variables: $response.body, $response.headers, $response.statusCode, $pageCount. Examples: {{ $response.body.parseJson().nextPage }}, {{ $pageCount * 10 }}. Refer to the <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/#pagination/?utm_source=n8n_app&utm_medium=node_settings_modal-credential_link&utm_campaign=n8n-nodes-base.httpRequest" target="_blank">docs</a> for more info.',
 									name: 'webhookNotice',
 									displayOptions: {
 										hide: {
@@ -1052,7 +1069,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 													name: 'value',
 													type: 'string',
 													default: '',
-													hint: 'Use expression mode and $response to access response data',
+													hint: 'Use expression mode and $response to access response data. Examples: {{ $response.body.parseJson().nextPage }}, {{ $pageCount + 1 }}',
 												},
 											],
 										},
@@ -1134,17 +1151,15 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 								{
 									displayName: 'Max Pages',
 									name: 'maxRequests',
-									type: 'number',
-									typeOptions: {
-										noDataExpression: true,
-									},
+									type: 'string',
 									displayOptions: {
 										show: {
 											limitPagesFetched: [true],
 										},
 									},
-									default: 100,
-									description: 'Maximum amount of request to be make',
+									default: '100',
+									description: 'Maximum amount of request to be make. Supports expressions like {{ $response.body.parseJson().totalsize }}',
+									hint: 'You can use $response variables here, e.g., {{ $response.body.parseJson().totalsize }}',
 								},
 								{
 									displayName: 'Interval Between Requests (ms)',
