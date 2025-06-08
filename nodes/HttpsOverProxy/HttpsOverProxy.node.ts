@@ -12,6 +12,7 @@ import * as http from 'http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { IDataObject } from 'n8n-workflow';
 import { httpsOverProxyDescription } from './description';
+import { configureResponseOptimizer } from './optimizeResponse';
 
 export class HttpsOverProxy implements INodeType {
 	description: INodeTypeDescription = httpsOverProxyDescription;
@@ -181,8 +182,12 @@ export class HttpsOverProxy implements INodeType {
 							outputFieldName?: string;
 							timeout?: number;
 							lowercaseHeaders?: boolean;
-							redirect?: string;
-							maxRedirects?: number;
+							redirect?: {
+								redirect?: {
+									followRedirects?: boolean;
+									maxRedirects?: number;
+								};
+							};
 							neverError?: boolean;
 						};
 						
@@ -315,8 +320,25 @@ export class HttpsOverProxy implements INodeType {
 							}
 						}
 						
-						// Handle authentication
-						const authentication = this.getNodeParameter('authentication', itemIndex, 'none') as string;
+						// Handle authentication (compatible with HttpRequestV3 format)
+						let authentication;
+						try {
+							authentication = this.getNodeParameter('authentication', itemIndex) as
+								| 'predefinedCredentialType'
+								| 'genericCredentialType'
+								| 'none';
+						} catch {
+							authentication = 'none';
+						}
+
+						let httpBasicAuth;
+						let httpBearerAuth;
+						let httpDigestAuth;
+						let httpHeaderAuth;
+						let httpQueryAuth;
+						let httpCustomAuth;
+						let nodeCredentialType: string | undefined;
+						let genericCredentialType: string | undefined;
 						
 						// Add headers
 						const headers: Record<string, string> = {};
@@ -324,35 +346,36 @@ export class HttpsOverProxy implements INodeType {
 						const lowercaseHeaders = options.lowercaseHeaders !== false; // Default is true
 						
 						// Apply authentication
-						if (authentication !== 'none') {
+						if (authentication === 'genericCredentialType') {
 							try {
-								if (authentication === 'basicAuth') {
-									const credentials = await this.getCredentials('httpBasicAuth', itemIndex);
-									const auth = Buffer.from(`${credentials.user}:${credentials.password}`).toString('base64');
+								genericCredentialType = this.getNodeParameter('genericAuthType', itemIndex) as string;
+
+								if (genericCredentialType === 'httpBasicAuth') {
+									httpBasicAuth = await this.getCredentials('httpBasicAuth', itemIndex);
+									const auth = Buffer.from(`${httpBasicAuth.user}:${httpBasicAuth.password}`).toString('base64');
 									headers['Authorization'] = `Basic ${auth}`;
-								} else if (authentication === 'bearerAuth') {
-									const credentials = await this.getCredentials('httpBearerAuth', itemIndex);
-									headers['Authorization'] = `Bearer ${credentials.token}`;
-								} else if (authentication === 'digestAuth') {
-									const credentials = await this.getCredentials('httpDigestAuth', itemIndex);
+								} else if (genericCredentialType === 'httpBearerAuth') {
+									httpBearerAuth = await this.getCredentials('httpBearerAuth', itemIndex);
+									headers['Authorization'] = `Bearer ${httpBearerAuth.token}`;
+								} else if (genericCredentialType === 'httpDigestAuth') {
+									httpDigestAuth = await this.getCredentials('httpDigestAuth', itemIndex);
 									// Note: Digest auth requires special handling, for now we'll use basic auth format
-									// In a full implementation, you'd need to handle the digest challenge-response
-									const auth = Buffer.from(`${credentials.user}:${credentials.password}`).toString('base64');
+									const auth = Buffer.from(`${httpDigestAuth.user}:${httpDigestAuth.password}`).toString('base64');
 									headers['Authorization'] = `Basic ${auth}`;
-								} else if (authentication === 'headerAuth') {
-									const credentials = await this.getCredentials('httpHeaderAuth', itemIndex);
-									headers[credentials.name as string] = credentials.value as string;
-								} else if (authentication === 'queryAuth') {
-									const credentials = await this.getCredentials('httpQueryAuth', itemIndex);
+								} else if (genericCredentialType === 'httpHeaderAuth') {
+									httpHeaderAuth = await this.getCredentials('httpHeaderAuth', itemIndex);
+									headers[httpHeaderAuth.name as string] = httpHeaderAuth.value as string;
+								} else if (genericCredentialType === 'httpQueryAuth') {
+									httpQueryAuth = await this.getCredentials('httpQueryAuth', itemIndex);
 									// Query auth will be handled in query parameters section
 									if (!requestOptions.params) {
 										requestOptions.params = {};
 									}
-									requestOptions.params[credentials.name as string] = credentials.value;
-								} else if (authentication === 'customAuth') {
-									const credentials = await this.getCredentials('httpCustomAuth', itemIndex);
+									requestOptions.params[httpQueryAuth.name as string] = httpQueryAuth.value;
+								} else if (genericCredentialType === 'httpCustomAuth') {
+									httpCustomAuth = await this.getCredentials('httpCustomAuth', itemIndex);
 									try {
-										const customAuth = JSON.parse((credentials.json as string) || '{}');
+										const customAuth = JSON.parse((httpCustomAuth.json as string) || '{}');
 										
 										// Apply custom headers
 										if (customAuth.headers) {
@@ -377,7 +400,7 @@ export class HttpsOverProxy implements INodeType {
 											// Store custom body for later processing
 											(requestOptions as any).customAuthBody = customAuth.body;
 										}
-									} catch (error) {
+									} catch (_error) {
 										throw new NodeOperationError(
 											this.getNode(),
 											'Invalid Custom Auth JSON configuration',
@@ -393,10 +416,16 @@ export class HttpsOverProxy implements INodeType {
 								}
 								throw new NodeOperationError(
 									this.getNode(),
-									`Authentication error: ${error.message}`,
+									`Authentication error: ${(error as Error).message}`,
 									{ itemIndex }
 								);
 							}
+						} else if (authentication === 'predefinedCredentialType') {
+							nodeCredentialType = this.getNodeParameter('nodeCredentialType', itemIndex) as string;
+							// Predefined credential types will be handled by n8n's built-in authentication system
+							// This is a placeholder for future implementation
+							console.log(`Using predefined credential type: ${nodeCredentialType}`);
+							// TODO: Implement predefined credential type handling
 						}
 						
 						if (sendHeaders) {
@@ -600,11 +629,15 @@ export class HttpsOverProxy implements INodeType {
 						// Set response type
 						requestOptions.responseType = 'text';
 						
-						// Set redirect options
-						if (options.redirect === 'doNotFollow') {
+						// Set redirect options (compatible with HttpRequestV3 format)
+						const redirectSettings = options.redirect?.redirect;
+						if (redirectSettings?.followRedirects === false) {
 							requestOptions.maxRedirects = 0;
-						} else if (options.maxRedirects !== undefined) {
-							requestOptions.maxRedirects = options.maxRedirects;
+						} else if (redirectSettings?.followRedirects === true && redirectSettings?.maxRedirects !== undefined) {
+							requestOptions.maxRedirects = redirectSettings.maxRedirects;
+						} else {
+							// Default behavior: follow redirects with default max
+							requestOptions.maxRedirects = 21;
 						}
 						
 						// Set never error option
@@ -624,6 +657,9 @@ export class HttpsOverProxy implements INodeType {
 						if (timeoutId) {
 							clearTimeout(timeoutId);
 						}
+						
+						// Configure response optimizer
+						const optimizeResponse = configureResponseOptimizer(this, itemIndex);
 						
 						// Process the response
 						let responseData;
@@ -666,21 +702,25 @@ export class HttpsOverProxy implements INodeType {
 							}
 						}
 						
-						// Return the response
-						let executionData;
+						// Apply response optimization if enabled
+						let executionData: any;
 						if (options.fullResponse === true) {
+							// For full response, optimize the data field
+							const optimizedData = optimizeResponse(responseData);
 							executionData = {
 								status: response.status,
 								statusText: response.statusText,
 								headers: response.headers,
-								data: responseData,
+								data: optimizedData,
 							};
 						} else {
-							// If responseData is a string, wrap it as { data: responseData }
-							if (typeof responseData === 'string') {
-								executionData = { data: responseData };
+							// For simple response, optimize the entire response
+							const optimizedResponse = optimizeResponse(responseData);
+							// If optimizedResponse is a string, wrap it as { data: optimizedResponse }
+							if (typeof optimizedResponse === 'string') {
+								executionData = { data: optimizedResponse };
 							} else {
-								executionData = responseData;
+								executionData = optimizedResponse;
 							}
 						}
 						
@@ -874,7 +914,7 @@ async function handlePagination(
 		maxRequests: number;
 		requestInterval: number;
 	},
-	returnItems: INodeExecutionData[]
+	_returnItems: INodeExecutionData[]
 ): Promise<void> {
 	// 暫時實作簡化版分頁，後續可以完善
 	// 目前先返回，避免編譯錯誤

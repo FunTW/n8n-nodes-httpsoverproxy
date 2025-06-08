@@ -143,6 +143,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 		{
 			displayName: 'Authentication',
 			name: 'authentication',
+			noDataExpression: true,
 			type: 'options',
 			options: [
 				{
@@ -150,40 +151,58 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					value: 'none',
 				},
 				{
-					name: 'Basic Auth',
-					value: 'basicAuth',
+					name: 'Predefined Credential Type',
+					value: 'predefinedCredentialType',
+					description:
+						"We've already implemented auth for many services so that you don't have to set it up manually",
 				},
 				{
-					name: 'Bearer Token',
-					value: 'bearerAuth',
-				},
-				{
-					name: 'Digest Auth',
-					value: 'digestAuth',
-				},
-				{
-					name: 'Header Auth',
-					value: 'headerAuth',
-				},
-				{
-					name: 'OAuth1',
-					value: 'oAuth1',
-				},
-				{
-					name: 'OAuth2',
-					value: 'oAuth2',
-				},
-				{
-					name: 'Query Auth',
-					value: 'queryAuth',
-				},
-				{
-					name: 'Custom Auth',
-					value: 'customAuth',
+					name: 'Generic Credential Type',
+					value: 'genericCredentialType',
+					description: 'Fully customizable. Choose between basic, header, OAuth2, etc.',
 				},
 			],
 			default: 'none',
-			description: 'The authentication to use',
+			description: 'The authentication method to use',
+		},
+		{
+			displayName: 'Credential Type',
+			name: 'nodeCredentialType',
+			type: 'credentialsSelect',
+			noDataExpression: true,
+			required: true,
+			default: '',
+			credentialTypes: ['extends:oAuth2Api', 'extends:oAuth1Api', 'has:authenticate'],
+			displayOptions: {
+				show: {
+					authentication: ['predefinedCredentialType'],
+				},
+			},
+		},
+		{
+			displayName:
+				'Make sure you have specified the scope(s) for the Service Account in the credential',
+			name: 'googleApiWarning',
+			type: 'notice',
+			default: '',
+			displayOptions: {
+				show: {
+					nodeCredentialType: ['googleApi'],
+				},
+			},
+		},
+		{
+			displayName: 'Generic Auth Type',
+			name: 'genericAuthType',
+			type: 'credentialsSelect',
+			required: true,
+			default: '',
+			credentialTypes: ['has:genericAuth'],
+			displayOptions: {
+				show: {
+					authentication: ['genericCredentialType'],
+				},
+			},
 		},
 		{
 			displayName: 'Send Query Parameters',
@@ -621,33 +640,42 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 				{
 					displayName: 'Redirects',
 					name: 'redirect',
-					type: 'options',
+					placeholder: 'Add Redirect',
+					type: 'fixedCollection',
+					typeOptions: {
+						multipleValues: false,
+					},
+					default: {
+						redirect: {},
+					},
 					options: [
 						{
-							name: 'Follow Redirects',
-							value: 'follow',
-						},
-						{
-							name: 'Don\'t Follow Redirects',
-							value: 'doNotFollow',
-						},
-					],
-					default: 'follow',
-					description: 'Whether to follow redirects or not',
-				},
-				{
-					displayName: 'Max Redirects',
-					name: 'maxRedirects',
-					type: 'number',
-					displayOptions: {
-						show: {
-							redirect: [
-								'follow',
+							displayName: 'Redirect',
+							name: 'redirect',
+							values: [
+								{
+									displayName: 'Follow Redirects',
+									name: 'followRedirects',
+									type: 'boolean',
+									default: true,
+									noDataExpression: true,
+									description: 'Whether to follow all redirects',
+								},
+								{
+									displayName: 'Max Redirects',
+									name: 'maxRedirects',
+									type: 'number',
+									displayOptions: {
+										show: {
+											followRedirects: [true],
+										},
+									},
+									default: 21,
+									description: 'Max number of redirects to follow',
+								},
 							],
 						},
-					},
-					default: 21,
-					description: 'Max number of redirects to follow',
+					],
 				},
 				{
 					displayName: 'Full Response',
@@ -934,7 +962,6 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 									description: 'Maximum amount of request to be make',
 								},
 								{
-									// eslint-disable-next-line n8n-nodes-base/node-param-display-name-miscased
 									displayName: 'Interval Between Requests (ms)',
 									name: 'requestInterval',
 									type: 'number',
@@ -953,6 +980,179 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 							],
 						},
 					],
+				},
+				{
+					displayName: 'Optimize Response',
+					name: 'optimizeResponse',
+					type: 'boolean',
+					default: false,
+					noDataExpression: true,
+					description:
+						'Whether to optimize the response to reduce amount of data passed to the LLM that could lead to better result and reduce cost',
+				},
+				{
+					displayName: 'Expected Response Type',
+					name: 'responseType',
+					type: 'options',
+					displayOptions: {
+						show: {
+							optimizeResponse: [true],
+						},
+					},
+					options: [
+						{
+							name: 'JSON',
+							value: 'json',
+						},
+						{
+							name: 'HTML',
+							value: 'html',
+						},
+						{
+							name: 'Text',
+							value: 'text',
+						},
+					],
+					default: 'json',
+				},
+				{
+					displayName: 'Field Containing Data',
+					name: 'dataField',
+					type: 'string',
+					default: '',
+					placeholder: 'e.g. records',
+					description: 'Specify the name of the field in the response containing the data',
+					hint: 'leave blank to use whole response',
+					requiresDataPath: 'single',
+					displayOptions: {
+						show: {
+							optimizeResponse: [true],
+							responseType: ['json'],
+						},
+					},
+				},
+				{
+					displayName: 'Include Fields',
+					name: 'fieldsToInclude',
+					type: 'options',
+					description: 'What fields response object should include',
+					default: 'all',
+					displayOptions: {
+						show: {
+							optimizeResponse: [true],
+							responseType: ['json'],
+						},
+					},
+					options: [
+						{
+							name: 'All',
+							value: 'all',
+							description: 'Include all fields',
+						},
+						{
+							name: 'Selected',
+							value: 'selected',
+							description: 'Include only fields specified below',
+						},
+						{
+							name: 'Except',
+							value: 'except',
+							description: 'Exclude fields specified below',
+						},
+					],
+				},
+				{
+					displayName: 'Fields',
+					name: 'fields',
+					type: 'string',
+					default: '',
+					placeholder: 'e.g. field1,field2',
+					description:
+						'Comma-separated list of the field names. Supports dot notation. You can drag the selected fields from the input panel.',
+					requiresDataPath: 'multiple',
+					displayOptions: {
+						show: {
+							optimizeResponse: [true],
+							responseType: ['json'],
+						},
+						hide: {
+							fieldsToInclude: ['all'],
+						},
+					},
+				},
+				{
+					displayName: 'Selector (CSS)',
+					name: 'cssSelector',
+					type: 'string',
+					description:
+						'Select specific element(e.g. body) or multiple elements(e.g. div) of chosen type in the response HTML.',
+					placeholder: 'e.g. body',
+					default: 'body',
+					displayOptions: {
+						show: {
+							optimizeResponse: [true],
+							responseType: ['html'],
+						},
+					},
+				},
+				{
+					displayName: 'Return Only Content',
+					name: 'onlyContent',
+					type: 'boolean',
+					default: false,
+					description:
+						'Whether to return only content of html elements, stripping html tags and attributes',
+					hint: 'Uses less tokens and may be easier for model to understand',
+					displayOptions: {
+						show: {
+							optimizeResponse: [true],
+							responseType: ['html'],
+						},
+					},
+				},
+				{
+					displayName: 'Elements To Omit',
+					name: 'elementsToOmit',
+					type: 'string',
+					displayOptions: {
+						show: {
+							optimizeResponse: [true],
+							responseType: ['html'],
+							onlyContent: [true],
+						},
+					},
+					default: '',
+					placeholder: 'e.g. img, .className, #ItemId',
+					description: 'Comma-separated list of selectors that would be excluded when extracting content',
+				},
+				{
+					displayName: 'Truncate Response',
+					name: 'truncateResponse',
+					type: 'boolean',
+					default: false,
+					hint: 'Helps save tokens',
+					displayOptions: {
+						show: {
+							optimizeResponse: [true],
+							responseType: ['text', 'html'],
+						},
+					},
+				},
+				{
+					displayName: 'Max Response Characters',
+					name: 'maxLength',
+					type: 'number',
+					default: 1000,
+					typeOptions: {
+						minValue: 1,
+					},
+					displayOptions: {
+						show: {
+							optimizeResponse: [true],
+							responseType: ['text', 'html'],
+							truncateResponse: [true],
+						},
+					},
 				},
 			],
 		},

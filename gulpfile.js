@@ -61,7 +61,10 @@ function moveCompiledFiles() {
     './dist/HttpsOverProxy.node.js.map',
     './dist/description.js',
     './dist/description.d.ts',
-    './dist/description.js.map'
+    './dist/description.js.map',
+    './dist/optimizeResponse.js',
+    './dist/optimizeResponse.d.ts',
+    './dist/optimizeResponse.js.map'
   ])
     .pipe(dest('./dist/nodes/HttpsOverProxy/'));
 }
@@ -75,7 +78,10 @@ function cleanupFiles(cb) {
     './dist/HttpsOverProxy.node.js.map',
     './dist/description.js',
     './dist/description.d.ts',
-    './dist/description.js.map'
+    './dist/description.js.map',
+    './dist/optimizeResponse.js',
+    './dist/optimizeResponse.d.ts',
+    './dist/optimizeResponse.js.map'
   ];
   
   filesToDelete.forEach(file => {
