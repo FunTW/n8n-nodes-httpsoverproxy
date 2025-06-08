@@ -4,6 +4,8 @@ import {
 	INodeType,
 	INodeTypeDescription,
 	NodeOperationError,
+	sleep,
+	BINARY_ENCODING,
 } from 'n8n-workflow';
 
 import axios, { AxiosRequestConfig } from 'axios';
@@ -11,8 +13,57 @@ import * as https from 'https';
 import * as http from 'http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { IDataObject } from 'n8n-workflow';
+import type { Readable } from 'stream';
+import FormData from 'form-data';
 import { httpsOverProxyDescription } from './description';
 import { configureResponseOptimizer } from './optimizeResponse';
+
+// Helper function to process parameters for multipart-form-data and file uploads
+async function parametersToKeyValue(
+	executeFunctions: IExecuteFunctions,
+	accumulator: { [key: string]: any },
+	cur: { 
+		name: string; 
+		value: string; 
+		parameterType?: string; 
+		inputDataFieldName?: string 
+	},
+	itemIndex: number,
+	items: INodeExecutionData[]
+): Promise<{ [key: string]: any }> {
+	if (cur.parameterType === 'formBinaryData') {
+		if (!cur.inputDataFieldName) return accumulator;
+		
+		try {
+			const binaryData = executeFunctions.helpers.assertBinaryData(itemIndex, cur.inputDataFieldName);
+			let uploadData: Buffer | Readable;
+			const itemBinaryData = items[itemIndex].binary![cur.inputDataFieldName];
+			
+			if (itemBinaryData.id) {
+				uploadData = await executeFunctions.helpers.getBinaryStream(itemBinaryData.id);
+			} else {
+				uploadData = Buffer.from(itemBinaryData.data, BINARY_ENCODING);
+			}
+
+			accumulator[cur.name] = {
+				value: uploadData,
+				options: {
+					filename: binaryData.fileName,
+					contentType: binaryData.mimeType,
+				},
+			};
+			return accumulator;
+		} catch (error) {
+			throw new NodeOperationError(
+				executeFunctions.getNode(),
+				`Error processing binary data for field "${cur.name}": ${error.message}`,
+				{ itemIndex }
+			);
+		}
+	}
+	accumulator[cur.name] = cur.value;
+	return accumulator;
+}
 
 export class HttpsOverProxy implements INodeType {
 	description: INodeTypeDescription = httpsOverProxyDescription;
@@ -108,9 +159,17 @@ export class HttpsOverProxy implements INodeType {
 			requestInterval: number;
 		};
 
-		// batching
-		const batchSize = this.getNodeParameter('options.batching.batch.batchSize', 0, 1) as number;
-		const batchInterval = this.getNodeParameter('options.batching.batch.batchInterval', 0, 0) as number;
+		// Get batching options (compatible with HttpRequestV3 format)
+		const batchingOptions = this.getNodeParameter('options.batching.batch', 0, {}) as {
+			batchSize?: number;
+			batchInterval?: number;
+		};
+		
+		// defaults batch size to 1 if it's set to 0, -1 means disabled
+		const batchSize = batchingOptions.batchSize !== undefined && batchingOptions.batchSize > 0 
+			? batchingOptions.batchSize 
+			: (batchingOptions.batchSize === -1 ? items.length : 1);
+		const batchInterval = batchingOptions.batchInterval || 0;
 
 		// 如果分頁模式是關閉的，直接處理請求
 		if (!pagination || pagination.paginationMode === 'off') {
@@ -121,6 +180,12 @@ export class HttpsOverProxy implements INodeType {
 				const endIndex = Math.min(startIndex + batchSize, items.length);
 				
 				for (let itemIndex = startIndex; itemIndex < endIndex; itemIndex++) {
+					// HttpRequestV3 compatible batching logic: wait between batches based on item index
+					if (itemIndex > 0 && batchSize > 0 && batchInterval > 0) {
+						if (itemIndex % batchSize === 0) {
+							await sleep(batchInterval);
+						}
+					}
 					// Declare timeoutId variable to ensure it's available throughout the function block
 					let timeoutId: NodeJS.Timeout | undefined;
 					
@@ -477,7 +542,6 @@ export class HttpsOverProxy implements INodeType {
 						const customAuthBody = (requestOptions as any).customAuthBody;
 						
 						if (this.getNodeParameter('sendBody', itemIndex, false) as boolean) {
-							
 							const contentType = this.getNodeParameter('contentType', itemIndex, 'json') as string;
 							
 							if (contentType === 'json' || contentType === 'form-urlencoded') {
@@ -490,14 +554,12 @@ export class HttpsOverProxy implements INodeType {
 								}
 								
 								if (specifyBody === 'keypair') {
-									// Directly use bodyParameters.parameters path
 									try {
 										const bodyParameters = this.getNodeParameter('bodyParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
 										
 										if (bodyParameters.length) {
 											const bodyParams: Record<string, string> = {};
 											for (const parameter of bodyParameters) {
-												// Ensure parameter name is not empty
 												if (parameter.name && parameter.name.trim() !== '') {
 													bodyParams[parameter.name] = parameter.value;
 												}
@@ -505,12 +567,10 @@ export class HttpsOverProxy implements INodeType {
 											
 											if (contentType === 'json') {
 												body = bodyParams as IDataObject;
-												// Merge custom auth body if exists
 												if (customAuthBody) {
 													body = { ...body, ...customAuthBody };
 												}
 											} else {
-												// Form-urlencoded: Convert to query string
 												const queryString = Object.entries(bodyParams)
 													.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
 													.join('&');
@@ -521,46 +581,121 @@ export class HttpsOverProxy implements INodeType {
 										// Error handling
 									}
 								} else {
-									// JSON parameters
 									const bodyJson = this.getNodeParameter('bodyParametersJson', itemIndex, '{}') as string;
 									if (contentType === 'json') {
 										try {
-											// Try to parse JSON
 											const parsedJson = JSON.parse(bodyJson);
 											body = parsedJson as IDataObject;
-											// Merge custom auth body if exists
 											if (customAuthBody) {
 												body = { ...body, ...customAuthBody };
 											}
-											// Set body as request data
 											requestOptions.data = body;
 										} catch (_e) {
-											// If can't parse as JSON, use raw string
 											console.log(`Unable to parse bodyParametersJson as JSON: ${bodyJson}`);
 											requestOptions.data = bodyJson;
 										}
 									} else {
-										// Form-urlencoded
 										try {
-											// Try to parse JSON and convert to URL encoded format
 											const parsedJson = JSON.parse(bodyJson);
 											const queryString = Object.entries(parsedJson)
 												.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
 												.join('&');
 											requestOptions.data = queryString;
 										} catch (_e) {
-											// If can't parse as JSON, use raw string
 											console.log(`Unable to parse bodyParametersJson as JSON: ${bodyJson}`);
 											requestOptions.data = bodyJson;
 										}
 									}
 								}
-							} else if (contentType === 'raw' || contentType === 'multipart-form-data') {
+							} else if (contentType === 'multipart-form-data') {
+								// Handle multipart-form-data with file uploads
+								try {
+									const bodyParameters = this.getNodeParameter('bodyParameters.parameters', itemIndex, []) as Array<{ 
+										name: string; 
+										value: string; 
+										parameterType?: string; 
+										inputDataFieldName?: string 
+									}>;
+									
+									if (bodyParameters.length) {
+										const formData = new FormData();
+										
+										// Process each parameter using the helper function
+										for (const parameter of bodyParameters) {
+											if (parameter.name && parameter.name.trim() !== '') {
+												const processedParam = await parametersToKeyValue(
+													this,
+													{}, 
+													parameter, 
+													itemIndex, 
+													items
+												);
+												
+												const value = processedParam[parameter.name];
+												if (value && typeof value === 'object' && value.value !== undefined) {
+													// Binary data with options
+													formData.append(parameter.name, value.value, value.options);
+												} else {
+													// Regular form data
+													formData.append(parameter.name, String(value || parameter.value));
+												}
+											}
+										}
+										
+										// Set the form data as request data
+										requestOptions.data = formData;
+										// Let FormData set the Content-Type header with boundary
+										headers['Content-Type'] = `multipart/form-data; boundary=${formData.getBoundary()}`;
+									}
+								} catch (error) {
+									throw new NodeOperationError(
+										this.getNode(),
+										`Error processing multipart-form-data: ${error.message}`,
+										{ itemIndex }
+									);
+								}
+							} else if (contentType === 'binaryData') {
+								// Handle binary data upload
+								try {
+									const inputDataFieldName = this.getNodeParameter('inputDataFieldName', itemIndex) as string;
+									
+									if (!inputDataFieldName) {
+										throw new NodeOperationError(
+											this.getNode(),
+											'Input Data Field Name is required for binary data upload',
+											{ itemIndex }
+										);
+									}
+									
+									const binaryData = this.helpers.assertBinaryData(itemIndex, inputDataFieldName);
+									let uploadData: Buffer | Readable;
+									let contentLength: number;
+									
+									const itemBinaryData = items[itemIndex].binary![inputDataFieldName];
+									if (itemBinaryData.id) {
+										uploadData = await this.helpers.getBinaryStream(itemBinaryData.id);
+										const metadata = await this.helpers.getBinaryMetadata(itemBinaryData.id);
+										contentLength = metadata.fileSize;
+									} else {
+										uploadData = Buffer.from(itemBinaryData.data, BINARY_ENCODING);
+										contentLength = uploadData.length;
+									}
+									
+									requestOptions.data = uploadData;
+									headers['Content-Length'] = contentLength.toString();
+									headers['Content-Type'] = binaryData.mimeType ?? 'application/octet-stream';
+								} catch (error) {
+									throw new NodeOperationError(
+										this.getNode(),
+										`Error processing binary data: ${error.message}`,
+										{ itemIndex }
+									);
+								}
+							} else if (contentType === 'raw') {
 								const rawContentType = this.getNodeParameter('rawContentType', itemIndex, '') as string;
 								const bodyContent = this.getNodeParameter('body', itemIndex, '') as string;
 								requestOptions.data = bodyContent;
 								
-								// Set Content-Type header
 								if (rawContentType) {
 									headers['Content-Type'] = rawContentType;
 								}
@@ -569,7 +704,6 @@ export class HttpsOverProxy implements INodeType {
 							// If no body is being sent but custom auth has body, use custom auth body
 							body = customAuthBody as IDataObject;
 							requestOptions.data = body;
-							// Set default content type for custom auth body
 							if (!headers['Content-Type'] && !headers['content-type']) {
 								headers['Content-Type'] = 'application/json';
 							}
@@ -877,11 +1011,6 @@ export class HttpsOverProxy implements INodeType {
 			
 			// Process all items in batches
 			for (let i = 0; i < items.length; i += batchSize) {
-				if (i !== 0 && batchInterval > 0) {
-					// Wait between batches if a batch interval is set
-					await new Promise((resolve) => setTimeout(resolve, batchInterval));
-				}
-				
 				const batchItems = await processBatch(i);
 				returnItems.push(...batchItems);
 			}

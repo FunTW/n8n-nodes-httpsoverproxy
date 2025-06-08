@@ -393,12 +393,16 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					value: 'form-urlencoded',
 				},
 				{
+					name: 'Form-Data',
+					value: 'multipart-form-data',
+				},
+				{
 					name: 'JSON',
 					value: 'json',
 				},
 				{
-					name: 'Multipart Form-Data',
-					value: 'multipart-form-data',
+					name: 'n8n Binary File',
+					value: 'binaryData',
 				},
 				{
 					name: 'Raw',
@@ -475,6 +479,86 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 			],
 		},
 		{
+			displayName: 'Body Parameters',
+			name: 'bodyParameters',
+			type: 'fixedCollection',
+			displayOptions: {
+				show: {
+					sendBody: [true],
+					contentType: ['multipart-form-data'],
+				},
+			},
+			typeOptions: {
+				multipleValues: true,
+			},
+			placeholder: 'Add Parameter',
+			default: {
+				parameters: [
+					{
+						name: '',
+						value: '',
+					},
+				],
+			},
+			options: [
+				{
+					name: 'parameters',
+					displayName: 'Parameter',
+					values: [
+						{
+							displayName: 'Parameter Type',
+							name: 'parameterType',
+							type: 'options',
+							options: [
+								{
+									name: 'n8n Binary File',
+									value: 'formBinaryData',
+								},
+								{
+									name: 'Form Data',
+									value: 'formData',
+								},
+							],
+							default: 'formData',
+						},
+						{
+							displayName: 'Name',
+							name: 'name',
+							type: 'string',
+							default: '',
+							description:
+								'ID of the field to set. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+						},
+						{
+							displayName: 'Value',
+							name: 'value',
+							type: 'string',
+							displayOptions: {
+								show: {
+									parameterType: ['formData'],
+								},
+							},
+							default: '',
+							description: 'Value of the field to set',
+						},
+						{
+							displayName: 'Input Data Field Name',
+							name: 'inputDataFieldName',
+							type: 'string',
+							displayOptions: {
+								show: {
+									parameterType: ['formBinaryData'],
+								},
+							},
+							default: '',
+							description:
+								'The name of the incoming field containing the binary file data to be processed',
+						},
+					],
+				},
+			],
+		},
+		{
 			displayName: 'Body Parameters (JSON)',
 			name: 'bodyParametersJson',
 			type: 'json',
@@ -487,6 +571,19 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 			},
 			default: '{\n}',
 			description: 'Body parameters as JSON object',
+		},
+		{
+			displayName: 'Input Data Field Name',
+			name: 'inputDataFieldName',
+			type: 'string',
+			displayOptions: {
+				show: {
+					sendBody: [true],
+					contentType: ['binaryData'],
+				},
+			},
+			default: '',
+			description: 'The name of the incoming field containing the binary file data to be processed',
 		},
 		{
 			displayName: 'Raw Content Type',
@@ -740,6 +837,48 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					},
 					default: 30000,
 					description: 'Request timeout in milliseconds. Increase this value if the proxy or target website is slow',
+				},
+				{
+					displayName: 'Batching',
+					name: 'batching',
+					placeholder: 'Add Batching',
+					type: 'fixedCollection',
+					typeOptions: {
+						multipleValues: false,
+					},
+					default: {
+						batch: {},
+					},
+					options: [
+						{
+							displayName: 'Batching',
+							name: 'batch',
+							values: [
+								{
+									displayName: 'Items per Batch',
+									name: 'batchSize',
+									type: 'number',
+									typeOptions: {
+										minValue: -1,
+									},
+									default: 50,
+									description:
+										'Input will be split in batches to throttle requests. -1 for disabled. 0 will be treated as 1.',
+								},
+								{
+									displayName: 'Batch Interval (ms)',
+									name: 'batchInterval',
+									type: 'number',
+									typeOptions: {
+										minValue: 0,
+									},
+									default: 1000,
+									description:
+										'Time (in milliseconds) between each batch of requests. 0 for disabled.',
+								},
+							],
+						},
+					],
 				},
 				{
 					displayName: 'Pagination',
