@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-httpsoverproxy",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "n8n node to make HTTPS requests through HTTP proxy, solving the common 400 error",
   "keywords": [
     "n8n-community-node-package",
