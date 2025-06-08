@@ -1287,42 +1287,79 @@ async function handlePagination(
 		}
 
 		try {
-			// 這裡應該執行實際的 HTTP 請求
-			// 由於分頁邏輯比較複雜，目前先實作基本架構
-			// 實際的請求邏輯需要與主要的請求處理邏輯整合
-			
+			// 執行真實的 HTTP 請求
 			console.log(`Executing pagination request ${requestCount + 1}`);
 			console.log('Continue expression:', continueExpression);
 			console.log('Pagination request data:', paginationRequestData);
 			
-			// 模擬請求結果（實際實作時需要替換為真實的請求邏輯）
-			const mockResponse = {
-				statusCode: 200,
-				body: requestCount < 2 ? [{ page: requestCount + 1 }] : [], // 模擬 2 頁數據
-			};
+			// 構建分頁覆蓋參數
+			const paginationOverrides: {
+				url?: string;
+				queryParams?: Record<string, any>;
+				headers?: Record<string, any>;
+				body?: any;
+			} = {};
+			
+			if (pagination.paginationMode === 'updateAParameterInEachRequest') {
+				// 更新參數模式
+				if (paginationRequestData.qs) {
+					paginationOverrides.queryParams = paginationRequestData.qs;
+				}
+				if (paginationRequestData.headers) {
+					paginationOverrides.headers = paginationRequestData.headers;
+				}
+				if (paginationRequestData.body) {
+					paginationOverrides.body = paginationRequestData.body;
+				}
+			} else if (pagination.paginationMode === 'responseContainsNextURL') {
+				// 下一個 URL 模式
+				if (paginationRequestData.url) {
+					paginationOverrides.url = paginationRequestData.url;
+				}
+			}
+			
+			// 執行 HTTP 請求
+			const items = executeFunctions.getInputData();
+			const result = await executeHttpRequest(executeFunctions, 0, items[0], items, paginationOverrides);
+			
+			// 從結果中提取回應數據
+			const response = (result.json as any).$response;
 			
 			// 評估繼續條件
 			if (pagination.paginationCompleteWhen === 'responseIsEmpty') {
-				continueRequests = Array.isArray(mockResponse.body) ? mockResponse.body.length > 0 : !!mockResponse.body;
+				continueRequests = Array.isArray(response.body) ? response.body.length > 0 : !!response.body;
 			} else if (pagination.paginationCompleteWhen === 'receiveSpecificStatusCodes') {
 				const statusCodesWhenCompleted = pagination.statusCodesWhenComplete
 					.split(',')
 					.map((item) => parseInt(item.trim()));
-				continueRequests = !statusCodesWhenCompleted.includes(mockResponse.statusCode);
+				continueRequests = !statusCodesWhenCompleted.includes(response.statusCode);
 			} else {
 				// 對於 'other' 類型，需要評估自訂表達式
 				// 這裡簡化處理，實際實作時需要使用 n8n 的表達式評估器
 				continueRequests = false;
 			}
 			
-			// 將結果添加到返回項目中（實際實作時需要處理真實的響應數據）
-			if (Array.isArray(mockResponse.body)) {
-				mockResponse.body.forEach((item: any) => {
-					returnItems.push({
-						json: item,
-						pairedItem: { item: 0 },
-					});
-				});
+			// 將結果添加到返回項目中
+			const cleanedResult = { ...result };
+			if (cleanedResult.json && (cleanedResult.json as any).$response) {
+				delete (cleanedResult.json as any).$response;
+			}
+			returnItems.push(cleanedResult);
+			
+			// 更新分頁參數以準備下一次請求
+			if (continueRequests) {
+				if (pagination.paginationMode === 'updateAParameterInEachRequest') {
+					// 更新分頁參數
+					updatePaginationParameters(paginationRequestData, response, pagination.parameters.parameters);
+				} else if (pagination.paginationMode === 'responseContainsNextURL') {
+					// 提取下一個 URL
+					const nextUrl = extractNextUrlFromResponse(response, pagination.nextURL);
+					if (nextUrl) {
+						paginationRequestData.url = nextUrl;
+					} else {
+						continueRequests = false;
+					}
+				}
 			}
 			
 			requestCount++;
@@ -1342,4 +1379,673 @@ async function handlePagination(
 	}
 	
 	console.log(`Pagination completed after ${requestCount} requests`);
+}
+
+// 更新分頁參數的輔助函數
+function updatePaginationParameters(
+	paginationOverrides: any,
+	response: any,
+	parameters: Array<{
+		type: 'body' | 'headers' | 'qs';
+		name: string;
+		value: string;
+	}>
+): void {
+	for (const parameter of parameters) {
+		const { type, name, value } = parameter;
+		
+		// 評估參數值（可能包含表達式）
+		let evaluatedValue = value;
+		
+		// 簡化的表達式評估（實際實作中應使用 n8n 的表達式評估器）
+		if (value.includes('$response')) {
+			// 處理 $response 相關的表達式
+			if (value.includes('$response.body')) {
+				// 例如：$response.body.nextPage
+				const bodyPath = value.replace('$response.body.', '');
+				const pathParts = bodyPath.split('.');
+				let currentValue = response.body;
+				
+				for (const part of pathParts) {
+					if (currentValue && typeof currentValue === 'object' && part in currentValue) {
+						currentValue = currentValue[part];
+					} else {
+						currentValue = undefined;
+						break;
+					}
+				}
+				
+				evaluatedValue = currentValue;
+			} else if (value.includes('$response.headers')) {
+				// 例如：$response.headers.nextPageUrl
+				const headerName = value.replace('$response.headers.', '');
+				evaluatedValue = response.headers[headerName] || response.headers[headerName.toLowerCase()];
+			}
+		}
+		
+		// 更新對應的參數類型
+		if (type === 'qs') {
+			if (!paginationOverrides.queryParams) {
+				paginationOverrides.queryParams = {};
+			}
+			paginationOverrides.queryParams[name] = evaluatedValue;
+		} else if (type === 'headers') {
+			if (!paginationOverrides.headers) {
+				paginationOverrides.headers = {};
+			}
+			paginationOverrides.headers[name] = evaluatedValue;
+		} else if (type === 'body') {
+			if (!paginationOverrides.body) {
+				paginationOverrides.body = {};
+			}
+			paginationOverrides.body[name] = evaluatedValue;
+		}
+	}
+}
+
+// 從回應中提取下一個 URL 的輔助函數
+function extractNextUrlFromResponse(response: any, nextUrlExpression?: string): string | null {
+	if (!nextUrlExpression) {
+		return null;
+	}
+	
+	// 簡化的表達式評估
+	if (nextUrlExpression.includes('$response.body')) {
+		const bodyPath = nextUrlExpression.replace('$response.body.', '');
+		const pathParts = bodyPath.split('.');
+		let currentValue = response.body;
+		
+		for (const part of pathParts) {
+			if (currentValue && typeof currentValue === 'object' && part in currentValue) {
+				currentValue = currentValue[part];
+			} else {
+				return null;
+			}
+		}
+		
+		return typeof currentValue === 'string' ? currentValue : null;
+	} else if (nextUrlExpression.includes('$response.headers')) {
+		const headerName = nextUrlExpression.replace('$response.headers.', '');
+		const headerValue = response.headers[headerName] || response.headers[headerName.toLowerCase()];
+		return typeof headerValue === 'string' ? headerValue : null;
+	}
+	
+	return null;
+}
+
+// 通用的 HTTP 請求執行函數
+async function executeHttpRequest(
+	executeFunctions: IExecuteFunctions,
+	itemIndex: number,
+	item: INodeExecutionData,
+	items: INodeExecutionData[],
+	paginationOverrides?: {
+		url?: string;
+		queryParams?: Record<string, any>;
+		headers?: Record<string, any>;
+		body?: any;
+	}
+): Promise<INodeExecutionData> {
+	const connectionPool = ConnectionPoolManager.getInstance();
+	let timeoutId: NodeJS.Timeout | undefined;
+	
+	try {
+		// 檢查代理設定
+		const proxySettings = executeFunctions.getNodeParameter('options.proxy.settings', itemIndex, null) as {
+			proxyUrl?: string;
+			proxyAuth?: boolean;
+			proxyUsername?: string;
+			proxyPassword?: string;
+		} | null;
+		
+		const useProxy = !!(proxySettings && proxySettings.proxyUrl && proxySettings.proxyUrl.trim() !== '');
+		
+		if (useProxy && (!proxySettings?.proxyUrl)) {
+			throw new NodeOperationError(
+				executeFunctions.getNode(),
+				'When using a proxy, you must provide a valid proxy URL in the format http://myproxy:3128',
+				{ itemIndex },
+			);
+		}
+		
+		// 處理代理 URL
+		let proxyHost = '';
+		let proxyPort = 8080;
+		
+		if (useProxy && proxySettings?.proxyUrl) {
+			try {
+				const proxyUrlObj = new URL(proxySettings.proxyUrl);
+				proxyHost = proxyUrlObj.hostname;
+				proxyPort = parseInt(proxyUrlObj.port || '8080', 10);
+			} catch (_error) {
+				const urlParts = proxySettings.proxyUrl.split(':');
+				if (urlParts.length === 2) {
+					proxyHost = urlParts[0];
+					proxyPort = parseInt(urlParts[1], 10) || 8080;
+				} else {
+					throw new NodeOperationError(
+						executeFunctions.getNode(),
+						`Invalid proxy URL format: ${proxySettings.proxyUrl}. The correct format should be http://myproxy:3128 or myproxy:3128`,
+						{ itemIndex },
+					);
+				}
+			}
+		}
+		
+		// 獲取請求參數（支援分頁覆蓋）
+		const requestMethod = executeFunctions.getNodeParameter('method', itemIndex) as string;
+		const baseUrl = paginationOverrides?.url || executeFunctions.getNodeParameter('url', itemIndex) as string;
+		const sendQuery = executeFunctions.getNodeParameter('sendQuery', itemIndex, false) as boolean;
+		const options = executeFunctions.getNodeParameter('options', itemIndex, {}) as {
+			allowUnauthorizedCerts?: boolean;
+			fullResponse?: boolean;
+			responseFormat?: string;
+			outputFieldName?: string;
+			timeout?: number;
+			lowercaseHeaders?: boolean;
+			redirect?: {
+				redirect?: {
+					followRedirects?: boolean;
+					maxRedirects?: number;
+				};
+			};
+			neverError?: boolean;
+		};
+		
+		// 清理代理主機名
+		let cleanProxyHost = '';
+		if (proxyHost) {
+			cleanProxyHost = proxyHost.replace(/^(http|https):\/\//, '');
+		}
+		
+		// 構建請求選項
+		const requestOptions: AxiosRequestConfig = {
+			method: requestMethod,
+			url: baseUrl,
+			headers: {},
+			timeout: options.timeout || 30000,
+			proxy: false,
+		};
+		
+		// 使用 AbortController 控制超時
+		const controller = new AbortController();
+		requestOptions.signal = controller.signal;
+		
+		const requestTimeoutMs = options.timeout || 30000;
+		timeoutId = setTimeout(() => {
+			const timeoutError = new Error(`Request canceled due to timeout (${requestTimeoutMs}ms). This was triggered by the node's timeout setting. If you need more time to complete the request, please increase the timeout value.`);
+			const customError = timeoutError as Error & { code: string };
+			customError.code = 'TIMEOUT';
+			// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+			// @ts-ignore
+			controller.abort(customError);
+		}, requestTimeoutMs);
+		
+		// 代理認證
+		let proxyAuthHeader = '';
+		if (useProxy && proxySettings?.proxyAuth) {
+			if (proxySettings.proxyUsername && proxySettings.proxyPassword) {
+				const username = String(proxySettings.proxyUsername);
+				const password = String(proxySettings.proxyPassword);
+				const auth = Buffer.from(`${username}:${password}`).toString('base64');
+				proxyAuthHeader = `Basic ${auth}`;
+				
+				setTimeout(() => {
+					password.replace(/./g, '*');
+				}, 0);
+			}
+		}
+		
+		// URL 驗證（防止 SSRF 攻擊）
+		try {
+			const parsedUrl = new URL(baseUrl);
+			
+			const hostname = parsedUrl.hostname.toLowerCase();
+			if (
+				hostname === 'localhost' || 
+				hostname === '127.0.0.1' || 
+				hostname === '::1' ||
+				hostname.startsWith('192.168.') || 
+				hostname.startsWith('10.') || 
+				(hostname.startsWith('172.') && 
+					(parseInt(hostname.split('.')[1], 10) >= 16 && 
+					parseInt(hostname.split('.')[1], 10) <= 31))
+			) {
+				const allowInternalNetworkAccess = executeFunctions.getNodeParameter(
+					'options.allowInternalNetworkAccess',
+					itemIndex,
+					false
+				) as boolean;
+				
+				if (!allowInternalNetworkAccess) {
+					throw new Error(
+						`Security restriction: Access to internal network address "${hostname}" is not allowed. If you need to access internal networks, please enable "Allow Internal Network Access" in the options.`
+					);
+				}
+			}
+		} catch (error) {
+			if (error.code === 'ERR_INVALID_URL') {
+				throw new NodeOperationError(executeFunctions.getNode(), `Invalid URL: ${baseUrl}`, { itemIndex });
+			}
+			throw error;
+		}
+		
+		// 添加查詢參數（支援分頁覆蓋）
+		if (sendQuery || paginationOverrides?.queryParams) {
+			let queryParams: Record<string, string> = {};
+			
+			// 添加基本查詢參數
+			if (sendQuery) {
+				const specifyQuery = executeFunctions.getNodeParameter('specifyQuery', itemIndex, 'keypair') as string;
+				if (specifyQuery === 'keypair') {
+					let queryParameters: Array<{ name: string; value: string }> = [];
+					try {
+						queryParameters = executeFunctions.getNodeParameter('queryParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
+					} catch (_e) {
+						try {
+							const queryParams = executeFunctions.getNodeParameter('queryParameters', itemIndex, {}) as { parameters?: Array<{ name: string; value: string }> };
+							if (queryParams && queryParams.parameters) {
+								queryParameters = queryParams.parameters;
+							}
+						} catch (_e2) {
+							queryParameters = [];
+						}
+					}
+					if (queryParameters.length) {
+						for (const parameter of queryParameters) {
+							if (parameter.name && parameter.name.trim() !== '') {
+								queryParams[parameter.name] = parameter.value;
+							}
+						}
+					}
+				} else {
+					const queryJson = executeFunctions.getNodeParameter('queryParametersJson', itemIndex, '{}') as string;
+					try {
+						queryParams = JSON.parse(queryJson);
+					} catch (_e) {
+						throw new NodeOperationError(executeFunctions.getNode(), 'Query Parameters (JSON) must be a valid JSON object', { itemIndex });
+					}
+				}
+			}
+			
+			// 合併分頁查詢參數
+			if (paginationOverrides?.queryParams) {
+				Object.assign(queryParams, paginationOverrides.queryParams);
+			}
+			
+			if (Object.keys(queryParams).length > 0) {
+				const url = new URL(baseUrl);
+				for (const [key, value] of Object.entries(queryParams)) {
+					url.searchParams.set(key, String(value));
+				}
+				requestOptions.url = url.toString();
+			}
+		}
+		
+		// 處理標頭（支援分頁覆蓋）
+		const lowercaseHeaders = options.lowercaseHeaders || false;
+		let headers: Record<string, string> = {};
+		
+		const sendHeaders = executeFunctions.getNodeParameter('sendHeaders', itemIndex, false) as boolean;
+		if (sendHeaders) {
+			const specifyHeaders = executeFunctions.getNodeParameter('specifyHeaders', itemIndex, 'keypair') as string;
+			if (specifyHeaders === 'keypair') {
+				try {
+					const headerParameters = executeFunctions.getNodeParameter('headerParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
+					if (headerParameters.length) {
+						for (const parameter of headerParameters) {
+							if (parameter.name && parameter.name.trim() !== '') {
+								const headerName = lowercaseHeaders ? parameter.name.toLowerCase() : parameter.name;
+								headers[headerName] = parameter.value;
+							}
+						}
+					}
+				} catch (_e) {
+					// Error handling
+				}
+			} else {
+				const headersJson = executeFunctions.getNodeParameter('headersJson', itemIndex, '{}') as string;
+				try {
+					const parsedHeaders = JSON.parse(headersJson);
+					for (const key in parsedHeaders) {
+						if (Object.prototype.hasOwnProperty.call(parsedHeaders, key)) {
+							const headerName = lowercaseHeaders ? key.toLowerCase() : key;
+							headers[headerName] = parsedHeaders[key];
+						}
+					}
+				} catch (_e) {
+					throw new NodeOperationError(executeFunctions.getNode(), 'Headers (JSON) must be a valid JSON object', { itemIndex });
+				}
+			}
+		}
+		
+		// 合併分頁標頭
+		if (paginationOverrides?.headers) {
+			Object.assign(headers, paginationOverrides.headers);
+		}
+		
+		// 添加代理認證標頭
+		if (proxyAuthHeader) {
+			headers['Proxy-Authorization'] = proxyAuthHeader;
+		}
+		
+		requestOptions.headers = headers;
+		
+		// 處理請求體（支援分頁覆蓋）
+		if (paginationOverrides?.body) {
+			requestOptions.data = paginationOverrides.body;
+			if (!headers['Content-Type'] && !headers['content-type']) {
+				headers['Content-Type'] = 'application/json';
+			}
+		} else if (executeFunctions.getNodeParameter('sendBody', itemIndex, false) as boolean) {
+			const contentType = executeFunctions.getNodeParameter('contentType', itemIndex, 'json') as string;
+			
+			if (contentType === 'json' || contentType === 'form-urlencoded') {
+				const specifyBody = executeFunctions.getNodeParameter('specifyBody', itemIndex, 'keypair') as string;
+				
+				if (contentType === 'json') {
+					headers['Content-Type'] = 'application/json';
+				} else {
+					headers['Content-Type'] = 'application/x-www-form-urlencoded';
+				}
+				
+				if (specifyBody === 'keypair') {
+					try {
+						const bodyParameters = executeFunctions.getNodeParameter('bodyParameters.parameters', itemIndex, []) as Array<{ name: string; value: string }>;
+						
+						if (bodyParameters.length) {
+							const bodyParams: Record<string, string> = {};
+							for (const parameter of bodyParameters) {
+								if (parameter.name && parameter.name.trim() !== '') {
+									bodyParams[parameter.name] = parameter.value;
+								}
+							}
+							
+							if (contentType === 'json') {
+								requestOptions.data = bodyParams;
+							} else {
+								const queryString = Object.entries(bodyParams)
+									.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+									.join('&');
+								requestOptions.data = queryString;
+							}
+						}
+					} catch (_e) {
+						// Error handling
+					}
+				} else {
+					const bodyJson = executeFunctions.getNodeParameter('bodyParametersJson', itemIndex, '{}') as string;
+					if (contentType === 'json') {
+						try {
+							requestOptions.data = JSON.parse(bodyJson);
+						} catch (_e) {
+							requestOptions.data = bodyJson;
+						}
+					} else {
+						try {
+							const parsedJson = JSON.parse(bodyJson);
+							const queryString = Object.entries(parsedJson)
+								.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+								.join('&');
+							requestOptions.data = queryString;
+						} catch (_e) {
+							requestOptions.data = bodyJson;
+						}
+					}
+				}
+			}
+		}
+		
+		// 配置代理和代理
+		const allowUnauthorizedCerts = options.allowUnauthorizedCerts || false;
+		const timeoutMs = options.timeout || 30000;
+		
+		const connectionPoolSettings = executeFunctions.getNodeParameter('options.connectionPool', itemIndex, {
+			keepAlive: true,
+			maxSockets: 50,
+			maxFreeSockets: 10,
+		}) as {
+			keepAlive?: boolean;
+			maxSockets?: number;
+			maxFreeSockets?: number;
+		};
+		
+		if (useProxy && cleanProxyHost) {
+			if (baseUrl.startsWith('https:')) {
+				const proxyUrl = proxySettings?.proxyAuth && proxySettings.proxyUsername && proxySettings.proxyPassword
+					? `http://${proxySettings.proxyUsername}:${proxySettings.proxyPassword}@${cleanProxyHost}:${proxyPort}`
+					: `http://${cleanProxyHost}:${proxyPort}`;
+				
+				const httpsProxyAgent = connectionPool.getProxyAgent(proxyUrl, {
+					rejectUnauthorized: !allowUnauthorizedCerts,
+					timeout: timeoutMs,
+					maxSockets: connectionPoolSettings.maxSockets,
+					maxFreeSockets: connectionPoolSettings.maxFreeSockets,
+				});
+				
+				requestOptions.httpsAgent = httpsProxyAgent;
+				// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+				// @ts-ignore
+				process.env.NODE_TLS_REJECT_UNAUTHORIZED = allowUnauthorizedCerts ? '0' : '1';
+			} else {
+				const httpAgent = connectionPool.getHttpAgent({
+					timeout: timeoutMs,
+					keepAlive: connectionPoolSettings.keepAlive !== false,
+					maxSockets: connectionPoolSettings.maxSockets,
+					maxFreeSockets: connectionPoolSettings.maxFreeSockets,
+				});
+				
+				requestOptions.proxy = {
+					host: cleanProxyHost,
+					port: proxyPort,
+					protocol: 'http:',
+				};
+				
+				requestOptions.httpAgent = httpAgent;
+			}
+		} else {
+			if (baseUrl.startsWith('https:')) {
+				requestOptions.httpsAgent = connectionPool.getHttpsAgent({
+					timeout: timeoutMs,
+					keepAlive: connectionPoolSettings.keepAlive !== false,
+					rejectUnauthorized: !allowUnauthorizedCerts,
+					maxSockets: connectionPoolSettings.maxSockets,
+					maxFreeSockets: connectionPoolSettings.maxFreeSockets,
+				});
+			} else {
+				requestOptions.httpAgent = connectionPool.getHttpAgent({
+					timeout: timeoutMs,
+					keepAlive: connectionPoolSettings.keepAlive !== false,
+					maxSockets: connectionPoolSettings.maxSockets,
+					maxFreeSockets: connectionPoolSettings.maxFreeSockets,
+				});
+			}
+		}
+		
+		// 設置回應類型
+		requestOptions.responseType = 'text';
+		
+		// 設置重定向選項並追蹤重定向歷史
+		const redirectSettings = options.redirect?.redirect;
+		const redirectHistory: Array<{ url: string; statusCode: number; headers: Record<string, any> }> = [];
+		
+		if (redirectSettings?.followRedirects === false) {
+			requestOptions.maxRedirects = 0;
+		} else if (redirectSettings?.followRedirects === true && redirectSettings?.maxRedirects !== undefined) {
+			requestOptions.maxRedirects = redirectSettings.maxRedirects;
+		} else {
+			requestOptions.maxRedirects = 21;
+		}
+		
+		// 創建 axios 實例以追蹤重定向
+		const axiosInstance = axios.create();
+		
+		// 添加請求攔截器來記錄重定向歷史
+		axiosInstance.interceptors.request.use((config) => {
+			// 記錄每個請求的 URL（包括重定向）
+			if (redirectHistory.length === 0) {
+				// 第一個請求
+				redirectHistory.push({
+					url: config.url || baseUrl,
+					statusCode: 0, // 請求階段，還沒有狀態碼
+					headers: config.headers || {},
+				});
+			}
+			return config;
+		});
+		
+		// 添加回應攔截器來記錄重定向歷史
+		axiosInstance.interceptors.response.use(
+			(response) => {
+				// 記錄最終回應
+				if (response.request && response.request.res && response.request.res.responseUrl) {
+					// 如果有重定向，記錄最終 URL
+					const finalUrl = response.request.res.responseUrl;
+					if (finalUrl !== baseUrl) {
+						redirectHistory.push({
+							url: finalUrl,
+							statusCode: response.status,
+							headers: response.headers,
+						});
+					}
+				}
+				
+				// 更新第一個記錄的狀態碼
+				if (redirectHistory.length > 0) {
+					redirectHistory[0].statusCode = response.status;
+				}
+				
+				return response;
+			},
+			(error) => {
+				// 處理重定向錯誤
+				if (error.response && [301, 302, 303, 307, 308].includes(error.response.status)) {
+					redirectHistory.push({
+						url: error.config?.url || error.request?.path || baseUrl,
+						statusCode: error.response.status,
+						headers: error.response.headers,
+					});
+				}
+				return Promise.reject(error);
+			}
+		);
+		
+		// 設置 never error 選項
+		if (options.neverError === true) {
+			requestOptions.validateStatus = () => true;
+		}
+		
+		// 執行請求（使用自訂的 axios 實例）
+		const response = await axiosInstance(requestOptions);
+		
+		// 清除超時計時器
+		if (timeoutId) {
+			clearTimeout(timeoutId);
+		}
+		
+		// 處理回應
+		let responseData;
+		const contentType = response.headers['content-type'] || '';
+		
+		const responseFormat = options.responseFormat || 'autodetect';
+		
+		if (responseFormat === 'file') {
+			const outputFieldName = options.outputFieldName || 'data';
+			responseData = {} as Record<string, unknown>;
+			responseData[outputFieldName] = await executeFunctions.helpers.prepareBinaryData(
+				Buffer.from(response.data),
+				undefined,
+				contentType,
+			);
+		} else if (responseFormat === 'json' || (responseFormat === 'autodetect' && contentType.includes('application/json'))) {
+			try {
+				responseData = JSON.parse(response.data);
+			} catch (_e) {
+				if (responseFormat === 'json') {
+					throw new NodeOperationError(
+						executeFunctions.getNode(),
+						'Response is not valid JSON. Try using "Auto-detect" or "Text" response format.',
+						{ itemIndex },
+					);
+				}
+				responseData = response.data;
+			}
+		} else {
+			if (responseFormat === 'text') {
+				const outputFieldName = options.outputFieldName || 'data';
+				responseData = {} as Record<string, unknown>;
+				responseData[outputFieldName] = response.data;
+			} else {
+				responseData = response.data;
+			}
+		}
+		
+		// 應用回應優化
+		let executionData: any;
+		if (options.fullResponse === true) {
+			executionData = {
+				status: response.status,
+				statusText: response.statusText,
+				headers: response.headers,
+				data: responseData,
+			};
+		} else {
+			if (typeof responseData === 'string') {
+				executionData = { data: responseData };
+			} else {
+				executionData = responseData;
+			}
+		}
+		
+		// 返回回應數據，包含分頁所需的額外元數據和重定向歷史
+		return {
+			json: {
+				...executionData,
+				$response: {
+					statusCode: response.status,
+					statusText: response.statusText,
+					headers: response.headers,
+					body: responseData,
+					redirectHistory: redirectHistory.length > 1 ? redirectHistory : undefined, // 只有在有重定向時才包含歷史
+				}
+			},
+			pairedItem: { item: itemIndex },
+		};
+		
+	} catch (error) {
+		// 清除超時計時器
+		if (timeoutId) {
+			clearTimeout(timeoutId);
+		}
+		
+		// 增強錯誤處理
+		let errorMessage = error.message;
+		
+		if (errorMessage === 'canceled' || error.code === 'ERR_CANCELED') {
+			const currentOptions = executeFunctions.getNodeParameter('options', itemIndex, {}) as {
+				timeout?: number;
+			};
+			const timeout = currentOptions.timeout || 30000;
+			errorMessage = `Request canceled due to timeout (${timeout}ms). This was triggered by the node's timeout setting. If you need more time to complete the request, please increase the timeout value.`;
+		} else if (errorMessage.includes('tunneling socket could not be established')) {
+			const errorProxySettings = executeFunctions.getNodeParameter('options.proxy.settings', itemIndex, {}) as {
+				proxyUrl?: string;
+			};
+			const proxyUrl = errorProxySettings?.proxyUrl || '';
+			
+			if (!proxyUrl.includes(':')) {
+				errorMessage = `Invalid proxy address format: missing port number. The correct format should be "myproxy:3128" or "http://myproxy:3128".`;
+			} else if (errorMessage.includes('ENOTFOUND')) {
+				errorMessage = `Unable to connect to proxy server: host not found. Please check if the proxy address is correct.`;
+			} else if (errorMessage.includes('ECONNREFUSED')) {
+				errorMessage = `Proxy server connection refused. Please verify the proxy server is running and the port number is correct.`;
+			} else if (errorMessage.includes('ETIMEDOUT')) {
+				errorMessage = `Proxy server connection timeout. Please check your network connection or if the proxy server is available.`;
+			}
+		} else if (errorMessage.includes('certificate') || errorMessage.includes('self-signed')) {
+			errorMessage = `SSL certificate error: ${errorMessage}\n\n[SOLUTION] Please enable the "Ignore SSL Issues (Insecure)" option in the node settings to ignore SSL certificate problems.\n\nNote: This will reduce connection security and is only recommended in trusted environments.`;
+		}
+		
+		throw new NodeOperationError(executeFunctions.getNode(), errorMessage, { itemIndex });
+	}
 }
