@@ -136,9 +136,18 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 			name: 'url',
 			type: 'string',
 			default: '',
-			placeholder: 'https://example.com',
-			description: 'The URL to make the request to',
+			placeholder: 'https://api.example.com/endpoint',
+			description: 'The URL to make the request to. Must be a valid HTTP or HTTPS URL.',
 			required: true,
+			typeOptions: {
+				rows: 1,
+			},
+		},
+		{
+			displayName: 'This node specializes in making HTTPS requests through HTTP proxies, solving common proxy tunnel issues that the standard HTTP Request node cannot handle.',
+			name: 'proxyNotice',
+			type: 'notice',
+			default: '',
 		},
 		{
 			displayName: 'Authentication',
@@ -163,7 +172,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 				},
 			],
 			default: 'none',
-			description: 'The authentication method to use',
+			description: 'The authentication method to use for the HTTP request',
 		},
 		{
 			displayName: 'Credential Type',
@@ -209,7 +218,8 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 			name: 'sendQuery',
 			type: 'boolean',
 			default: false,
-			description: 'Whether the request has query params or not',
+			noDataExpression: true,
+			description: 'Whether to include query parameters in the request URL (e.g., ?param1=value1&param2=value2)',
 		},
 		{
 			displayName: 'Specify Query Parameters',
@@ -224,13 +234,16 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 				{
 					name: 'Using Fields Below',
 					value: 'keypair',
+					description: 'Add parameters one by one using name-value pairs',
 				},
 				{
 					name: 'Using JSON',
 					value: 'json',
+					description: 'Specify all parameters as a JSON object',
 				},
 			],
 			default: 'keypair',
+			description: 'How to specify the query parameters for the request',
 		},
 		{
 			displayName: 'Query Parameters',
@@ -285,14 +298,16 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					specifyQuery: ['json'],
 				},
 			},
-			default: '',
+			default: '{\n  "param1": "value1",\n  "param2": "value2"\n}',
+			description: 'Query parameters as JSON object. Example: {"page": 1, "limit": 10}',
 		},
 		{
 			displayName: 'Send Headers',
 			name: 'sendHeaders',
 			type: 'boolean',
 			default: false,
-			description: 'Whether the request has headers or not',
+			noDataExpression: true,
+			description: 'Whether to include custom headers in the request (e.g., Authorization, Content-Type)',
 		},
 		{
 			displayName: 'Specify Headers',
@@ -307,13 +322,16 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 				{
 					name: 'Using Fields Below',
 					value: 'keypair',
+					description: 'Add headers one by one using name-value pairs',
 				},
 				{
 					name: 'Using JSON',
 					value: 'json',
+					description: 'Specify all headers as a JSON object',
 				},
 			],
 			default: 'keypair',
+			description: 'How to specify the headers for the request',
 		},
 		{
 			displayName: 'Headers',
@@ -368,8 +386,9 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					specifyHeaders: ['json'],
 				},
 			},
-			default: '{\n}',
-			description: 'Headers as JSON object',
+			default: '{\n  "Content-Type": "application/json"\n}',
+			placeholder: '{\n  "Content-Type": "application/json",\n  "Authorization": "Bearer token",\n  "User-Agent": "n8n"\n}',
+			description: 'Headers to send with the request as JSON object. Common headers include Content-Type, Authorization, User-Agent',
 		},
 		{
 			displayName: 'Send Body',
@@ -391,26 +410,31 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 				{
 					name: 'Form-Urlencoded',
 					value: 'form-urlencoded',
+					description: 'Send data as application/x-www-form-urlencoded (like HTML forms)',
 				},
 				{
 					name: 'Form-Data',
 					value: 'multipart-form-data',
+					description: 'Send data as multipart/form-data (supports file uploads)',
 				},
 				{
 					name: 'JSON',
 					value: 'json',
+					description: 'Send data as application/json (most common for APIs)',
 				},
 				{
 					name: 'n8n Binary File',
 					value: 'binaryData',
+					description: 'Send a binary file from n8n workflow',
 				},
 				{
 					name: 'Raw',
 					value: 'raw',
+					description: 'Send raw text data with custom content type',
 				},
 			],
 			default: 'json',
-			description: 'Content-Type to use for the request',
+			description: 'The format of the request body data',
 		},
 		{
 			displayName: 'Specify Body',
@@ -426,13 +450,16 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 				{
 					name: 'Using Fields Below',
 					value: 'keypair',
+					description: 'Add body parameters one by one using name-value pairs',
 				},
 				{
 					name: 'Using JSON',
 					value: 'json',
+					description: 'Specify the entire body as a JSON object',
 				},
 			],
 			default: 'keypair',
+			description: 'How to specify the request body data',
 		},
 		{
 			displayName: 'Body Parameters',
@@ -569,8 +596,9 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					specifyBody: ['json'],
 				},
 			},
-			default: '{\n}',
-			description: 'Body parameters as JSON object',
+			default: '{\n  "key": "value"\n}',
+			placeholder: '{\n  "name": "John Doe",\n  "email": "john@example.com",\n  "age": 30\n}',
+			description: 'Request body data as JSON object. For JSON requests, this becomes the request body. For form-urlencoded, this becomes form data.',
 		},
 		{
 			displayName: 'Input Data Field Name',
@@ -595,9 +623,9 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					contentType: ['raw'],
 				},
 			},
-			default: '',
-			placeholder: 'text/plain',
-			description: 'Content-Type to use for the raw body',
+			default: 'text/plain',
+			placeholder: 'text/plain, application/xml, text/csv',
+			description: 'Content-Type header for the raw body data (e.g., text/plain, application/xml, text/csv)',
 		},
 		{
 			displayName: 'Body',
@@ -606,11 +634,12 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 			displayOptions: {
 				show: {
 					sendBody: [true],
-					contentType: ['raw', 'multipart-form-data'],
+					contentType: ['raw'],
 				},
 			},
 			default: '',
-			description: 'The body of the request',
+			placeholder: 'Raw text content to send in the request body',
+			description: 'The raw text content to send as the request body',
 		},
 		{
 			displayName: 'Options',
@@ -634,6 +663,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					default: {
 						batch: {},
 					},
+					description: 'Control how multiple input items are processed in batches to avoid overwhelming the target server',
 					options: [
 						{
 							name: 'batch',
@@ -644,10 +674,10 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 									name: 'batchSize',
 									type: 'number',
 									typeOptions: {
-										minValue: 1,
+										minValue: -1,
 									},
 									default: 1,
-									description: 'Number of items to process at once',
+									description: 'Number of items to process at once. Use -1 to disable batching and process all items simultaneously.',
 								},
 								{
 									displayName: 'Batch Interval',
@@ -658,7 +688,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 									},
 									default: 0,
 									description:
-										'Time (in milliseconds) between each batch of requests. 0 for no delay.',
+										'Time (in milliseconds) to wait between each batch of requests. Use 0 for no delay. Useful to avoid rate limiting.',
 								},
 							],
 						},
@@ -672,6 +702,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					default: {
 						settings: {},
 					},
+					description: 'Configure HTTP/HTTPS proxy server for the request. Useful for corporate networks or when you need to route traffic through a specific server.',
 					options: [
 						{
 							name: 'settings',
@@ -725,14 +756,14 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					name: 'allowUnauthorizedCerts',
 					type: 'boolean',
 					default: false,
-					description: 'Whether to connect even if SSL certificate validation is not possible',
+					description: 'Whether to connect even if SSL certificate validation is not possible. ⚠️ Only use this for testing or trusted internal servers.',
 				},
 				{
 					displayName: 'Lowercase Headers',
 					name: 'lowercaseHeaders',
 					type: 'boolean',
 					default: true,
-					description: 'Whether to lowercase header names',
+					description: 'Whether to convert all response header names to lowercase. Recommended for consistent header handling.',
 				},
 				{
 					displayName: 'Redirects',
@@ -745,6 +776,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					default: {
 						redirect: {},
 					},
+					description: 'Control how HTTP redirects (3xx status codes) are handled',
 					options: [
 						{
 							displayName: 'Redirect',
@@ -756,7 +788,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 									type: 'boolean',
 									default: true,
 									noDataExpression: true,
-									description: 'Whether to follow all redirects',
+									description: 'Whether to automatically follow HTTP redirects (301, 302, etc.)',
 								},
 								{
 									displayName: 'Max Redirects',
@@ -768,7 +800,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 										},
 									},
 									default: 21,
-									description: 'Max number of redirects to follow',
+									description: 'Maximum number of redirects to follow before giving up (prevents infinite redirect loops)',
 								},
 							],
 						},
@@ -779,14 +811,14 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					name: 'fullResponse',
 					type: 'boolean',
 					default: false,
-					description: 'Whether to return the full response data instead of only the body',
+					description: 'Whether to return the complete response object (including headers, status code, etc.) instead of just the response body',
 				},
 				{
 					displayName: 'Never Error',
 					name: 'neverError',
 					type: 'boolean',
 					default: false,
-					description: 'Whether to return success even if the request returns an error code (4xx or 5xx)',
+					description: 'Whether to treat HTTP error status codes (4xx, 5xx) as successful responses instead of throwing errors',
 				},
 				{
 					displayName: 'Response Format',
@@ -796,22 +828,26 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 						{
 							name: 'Autodetect',
 							value: 'autodetect',
+							description: 'Automatically detect the response format based on Content-Type header',
 						},
 						{
 							name: 'File',
 							value: 'file',
+							description: 'Treat response as binary file data',
 						},
 						{
 							name: 'JSON',
 							value: 'json',
+							description: 'Parse response as JSON object',
 						},
 						{
 							name: 'Text',
 							value: 'text',
+							description: 'Treat response as plain text',
 						},
 					],
 					default: 'autodetect',
-					description: 'The format in which the data gets returned from the URL',
+					description: 'How to interpret and process the response data from the server',
 				},
 				{
 					displayName: 'Put Output in Field',
@@ -836,50 +872,9 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 						minValue: 1,
 					},
 					default: 30000,
-					description: 'Request timeout in milliseconds. Increase this value if the proxy or target website is slow',
+					description: 'Request timeout in milliseconds (30000 = 30 seconds). Increase this value if the proxy or target website is slow to respond.',
 				},
-				{
-					displayName: 'Batching',
-					name: 'batching',
-					placeholder: 'Add Batching',
-					type: 'fixedCollection',
-					typeOptions: {
-						multipleValues: false,
-					},
-					default: {
-						batch: {},
-					},
-					options: [
-						{
-							displayName: 'Batching',
-							name: 'batch',
-							values: [
-								{
-									displayName: 'Items per Batch',
-									name: 'batchSize',
-									type: 'number',
-									typeOptions: {
-										minValue: -1,
-									},
-									default: 50,
-									description:
-										'Input will be split in batches to throttle requests. -1 for disabled. 0 will be treated as 1.',
-								},
-								{
-									displayName: 'Batch Interval (ms)',
-									name: 'batchInterval',
-									type: 'number',
-									typeOptions: {
-										minValue: 0,
-									},
-									default: 1000,
-									description:
-										'Time (in milliseconds) between each batch of requests. 0 for disabled.',
-								},
-							],
-						},
-					],
-				},
+
 				{
 					displayName: 'Pagination',
 					name: 'pagination',
@@ -891,6 +886,7 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 					default: {
 						pagination: {},
 					},
+					description: 'Automatically handle paginated API responses by making multiple requests until all data is retrieved',
 					options: [
 						{
 							displayName: 'Pagination',
@@ -907,14 +903,17 @@ export const httpsOverProxyDescription: INodeTypeDescription = {
 										{
 											name: 'Off',
 											value: 'off',
+											description: 'No pagination - make only one request',
 										},
 										{
 											name: 'Update a Parameter in Each Request',
 											value: 'updateAParameterInEachRequest',
+											description: 'Update query/header/body parameters for each page (e.g., page number, offset)',
 										},
 										{
 											name: 'Response Contains Next URL',
 											value: 'responseContainsNextURL',
+											description: 'Extract the next page URL from the response data',
 										},
 									],
 									default: 'updateAParameterInEachRequest',
