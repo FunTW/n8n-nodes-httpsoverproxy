@@ -1337,7 +1337,7 @@ function deepMerge(target: any, source: any): any {
 }
 
 // 添加表達式評估輔助函數
-function getResolvedValue(
+export function getResolvedValue(
 	executeFunctions: IExecuteFunctions,
 	parameterValue: NodeParameterValueType,
 	itemIndex: number,
@@ -1347,7 +1347,6 @@ function getResolvedValue(
 	returnObjectAsString = false,
 ): NodeParameterValueType {
 	const mode = 'internal' as const;
-	const runExecutionData = null;
 	const connectionInputData = executeFunctions.getInputData();
 	const node = executeFunctions.getNode();
 
@@ -1355,28 +1354,15 @@ function getResolvedValue(
 		typeof parameterValue === 'object' ||
 		(typeof parameterValue === 'string' && parameterValue.charAt(0) === '=')
 	) {
-		// 使用 n8n 的 workflow expression 引擎來評估表達式
-		// 這樣可以正確處理 additionalKeys 中的 $response 和 $pageCount
-		const workflow = (executeFunctions as any).workflow;
-		if (workflow && workflow.expression) {
-			return workflow.expression.getParameterValue(
-				parameterValue,
-				runExecutionData,
-				runIndex,
-				itemIndex,
-				node.name,
-				connectionInputData,
-				mode,
-				additionalKeys ?? {},
-				executeData,
-				returnObjectAsString,
-			);
-		} else {
-			// 回退到基本的表達式評估
-			// 但首先嘗試手動處理 $response 和 $pageCount 變數
+		try {
+			// 使用 n8n 的內建表達式評估方法
+			// 這個方法能夠正確處理對其他節點的引用，如 $('變數').item.json.pageNum
+			// 但是它不能處理 additionalKeys，所以我們需要先手動處理這些變數
+			
+			let processedValue = parameterValue as string;
+			
+			// 如果有 additionalKeys，先嘗試手動處理 $response 和 $pageCount 變數
 			if (typeof parameterValue === 'string' && additionalKeys) {
-				let processedValue = parameterValue;
-				
 				// 手動替換 $response 變數
 				if (additionalKeys.$response && processedValue.includes('$response')) {
 					const responseStr = JSON.stringify(additionalKeys.$response);
@@ -1387,21 +1373,48 @@ function getResolvedValue(
 				if (additionalKeys.$pageCount !== undefined && processedValue.includes('$pageCount')) {
 					processedValue = processedValue.replace(/\$pageCount/g, String(additionalKeys.$pageCount));
 				}
-				
-				// 如果有替換發生，嘗試評估修改後的表達式
-				if (processedValue !== parameterValue) {
-					try {
-						return executeFunctions.evaluateExpression(processedValue, itemIndex);
-					} catch (error) {
-						console.warn('Failed to evaluate modified expression:', error);
-					}
+			}
+			
+			const result = executeFunctions.evaluateExpression(
+				processedValue,
+				itemIndex,
+			);
+			
+			// 修正：如果結果是字串且以 = 開頭，移除等號
+			if (typeof result === 'string' && result.startsWith('=')) {
+				return result.substring(1);
+			}
+			
+			return result;
+		} catch (error) {
+			// 如果內建方法失敗，嘗試使用 workflow expression 引擎
+			const workflow = (executeFunctions as any).workflow;
+			if (workflow && workflow.expression) {
+				try {
+					// 獲取正確的 runExecutionData 以支援節點引用
+					const runExecutionData = (executeFunctions as any).getExecuteData?.() || executeData;
+					
+					return workflow.expression.getParameterValue(
+						parameterValue,
+						runExecutionData,
+						runIndex,
+						itemIndex,
+						node.name,
+						connectionInputData,
+						mode,
+						additionalKeys ?? {},
+						executeData,
+						returnObjectAsString,
+					);
+				} catch (workflowError) {
+					console.warn('Workflow expression evaluation failed:', workflowError);
+					// 如果 workflow expression 也失敗，重新拋出原始錯誤
+					throw error;
 				}
 			}
 			
-			return executeFunctions.evaluateExpression(
-				parameterValue as string,
-				itemIndex,
-			);
+			// 如果無法處理，重新拋出原始錯誤
+			throw error;
 		}
 	}
 
@@ -1545,7 +1558,10 @@ async function handlePagination(
 
 	// 實作分頁請求邏輯
 	const runIndex = 0;
-	const executeData = {
+	
+	// 獲取完整的執行上下文，包括其他節點的數據
+	// 這樣可以支援 $('變數').item.json.pageNum 這樣的表達式
+	const executeData = (executeFunctions as any).getExecuteData?.() || {
 		data: {},
 		node: executeFunctions.getNode(),
 		source: null,
