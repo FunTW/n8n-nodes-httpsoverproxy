@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-httpsoverproxy",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "n8n node to make HTTPS requests through HTTP proxy, solving the common 400 error",
   "keywords": [
     "n8n-community-node-package",
@@ -29,9 +29,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    		"test:node-reference": "jest tests/__tests__/nodes/HttpsOverProxy/node-reference.test.ts",
-		"test:interval-expression": "jest tests/__tests__/nodes/HttpsOverProxy/interval-expression.test.ts",
-		"test:max-pages-expression": "jest tests/__tests__/nodes/HttpsOverProxy/max-pages-expression.test.ts",
+    "test:node-reference": "jest tests/__tests__/nodes/HttpsOverProxy/node-reference.test.ts",
+    "test:interval-expression": "jest tests/__tests__/nodes/HttpsOverProxy/interval-expression.test.ts",
+    "test:max-pages-expression": "jest tests/__tests__/nodes/HttpsOverProxy/max-pages-expression.test.ts",
     "prepublishOnly": "npm run build && npm run lint && npm run test"
   },
   "files": [
