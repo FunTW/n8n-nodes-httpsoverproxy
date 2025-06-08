@@ -2,50 +2,49 @@
 
 > [繁體中文版說明文件](README.zh-TW.md)
 
-This node allows you to make HTTPS requests through an HTTP proxy in n8n workflows with advanced features comparable to n8n's built-in HTTP Request node.
+This node solves the critical limitation of n8n's built-in HTTP Request node: **the inability to connect to HTTPS websites when using an HTTP proxy**.
 
-## Purpose
+## The Problem
 
-This project was created to solve a specific limitation in n8n's standard HTTP node: **the inability to connect to HTTPS websites when using an HTTP proxy**. 
+n8n's standard HTTP Request node fails when trying to access HTTPS sites through HTTP proxies, which is a common requirement in enterprise environments with firewall restrictions.
 
-While the standard HTTP node in n8n works well for most HTTP requests, it fails when trying to access HTTPS sites through an HTTP proxy. The HTTPS Over Proxy node addresses this gap while maintaining functionality similar to the built-in HTTP node.
+## The Solution
 
-## Features
+HTTPS Over Proxy node provides specialized proxy handling while maintaining compatibility with n8n's workflow ecosystem.
 
-### Core Functionality
-- Make HTTPS requests through HTTP proxies
-- Support for proxy authentication
-- Configurable timeout settings
-- Option to ignore SSL certificate validation issues
-- Support for various request methods (GET, POST, PUT, DELETE, etc.)
-- Support for query parameters, headers, and body data
+## Unique Features (Not Available in Built-in HTTP Request)
 
-### Advanced Authentication
-- **Custom Authentication**: JSON-based custom auth configuration
-- **Predefined Credential Types**: Support for OAuth2, OAuth1, API Key, Basic Auth, and other n8n credential types
-- **Bearer Token**: Built-in Bearer token authentication
-- Automatic credential application and token management
+### 🌍 Advanced Proxy Support
+- **HTTPS over HTTP Proxy**: The core feature that solves the main limitation
+- **Proxy Authentication**: Complete username/password authentication for proxy servers
+- **Connection Pool Management**: Specialized proxy connection pooling for optimal performance
+- **Proxy Error Diagnostics**: Detailed proxy-specific error messages and troubleshooting guides
 
-### Request Processing
-- **Batch Processing**: Configurable batch size and intervals for processing multiple requests
-- **Pagination Support**: Complete pagination system with multiple modes:
-  - Update parameter in each request
-  - Response contains next URL
-  - Custom completion conditions
-- **Response Optimization**: Intelligent response processing with HTML content extraction and JSON filtering
-- **File Upload Support**: Complete multipart-form-data and binary file upload capabilities
+### 🔧 Enhanced Connection Management
+- **Custom Connection Pools**: HTTP/HTTPS/Proxy agent management with configurable settings:
+  - `maxSockets`: Maximum concurrent connections per host (default: 50)
+  - `maxFreeSockets`: Maximum idle connections per host (default: 10)
+  - `keepAlive`: Connection reuse optimization
+  - `timeout`: Per-connection timeout control
+- **Agent Cleanup**: Automatic cleanup of unused connection agents
 
-### Performance & Reliability
-- **Connection Pool Management**: HTTP/HTTPS connection pooling for improved performance
-- **Smart Error Handling**: Detailed error messages with troubleshooting suggestions
-- **Request Timeout Control**: Configurable timeout settings with intelligent error reporting
-- **SSL Certificate Handling**: Flexible SSL certificate validation options
+### 🛠️ Advanced Error Handling & Diagnostics
+- **Proxy-Specific Error Messages**: Detailed error reporting for proxy connection issues
+- **Troubleshooting Suggestions**: Built-in guidance for common proxy problems
+- **Connection State Debugging**: Detailed logging of connection pool states
+- **Smart Error Classification**: Distinguishes between proxy, network, and application errors
 
-### Security Features
-- Protection against SSRF attacks
-- Restricted internal network access (localhost, 127.0.0.1, etc.) by default
-- Secure proxy authentication handling
-- Safe error reporting without exposing sensitive information
+### 📊 Enhanced Response Processing
+- **HTML Content Extraction**: Advanced HTML parsing with CSS selectors
+- **Mozilla Readability Integration**: Clean article extraction from web pages
+- **JSDOM Processing**: Full DOM manipulation capabilities
+- **Text Content Optimization**: Intelligent text extraction and formatting
+
+### 🔍 Development & Debugging Features
+- **Comprehensive Logging**: Detailed request/response logging for debugging
+- **cURL Command Parsing**: Advanced cURL import with proxy settings support
+- **Request State Tracking**: Monitor connection states and performance metrics
+- **Proxy Configuration Validation**: Automatic validation of proxy settings
 
 ## Installation
 
