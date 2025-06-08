@@ -1184,8 +1184,152 @@ export class HttpsOverProxy implements INodeType {
 			await handlePagination(this, pagination, returnItems);
 		}
 		
+		// 實作批次結果聚合功能
+		const aggregationOptions = this.getNodeParameter('options.batchAggregation', 0, {}) as {
+			enabled?: boolean;
+			aggregationType?: 'merge' | 'array' | 'summary';
+			mergeStrategy?: 'shallow' | 'deep';
+			includeMetadata?: boolean;
+		};
+		
+		if (aggregationOptions.enabled && returnItems.length > 1) {
+			const aggregatedResult = aggregateBatchResults(returnItems, aggregationOptions);
+			return [aggregatedResult];
+		}
+		
 		return [returnItems];
 	}
+}
+
+// 批次結果聚合函數
+function aggregateBatchResults(
+	items: INodeExecutionData[],
+	options: {
+		aggregationType?: 'merge' | 'array' | 'summary';
+		mergeStrategy?: 'shallow' | 'deep';
+		includeMetadata?: boolean;
+	}
+): INodeExecutionData[] {
+	const { aggregationType = 'array', mergeStrategy = 'shallow', includeMetadata = false } = options;
+	
+	if (aggregationType === 'merge') {
+		// 合併所有結果到單一物件
+		const mergedData: any = {};
+		const metadata: any = {
+			totalItems: items.length,
+			aggregationType: 'merge',
+			mergeStrategy,
+		};
+		
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i];
+			if (item.json) {
+				if (mergeStrategy === 'deep') {
+					// 深度合併
+					deepMerge(mergedData, item.json);
+				} else {
+					// 淺層合併
+					Object.assign(mergedData, item.json);
+				}
+			}
+		}
+		
+		if (includeMetadata) {
+			mergedData._metadata = metadata;
+		}
+		
+		return [{
+			json: mergedData,
+			pairedItem: { item: 0 },
+		}];
+		
+	} else if (aggregationType === 'array') {
+		// 將所有結果包裝在陣列中
+		const arrayData = items.map((item, index) => ({
+			...item.json,
+			_itemIndex: index,
+		}));
+		
+		const metadata: any = {
+			totalItems: items.length,
+			aggregationType: 'array',
+		};
+		
+		const result: any = {
+			items: arrayData,
+		};
+		
+		if (includeMetadata) {
+			result._metadata = metadata;
+		}
+		
+		return [{
+			json: result,
+			pairedItem: { item: 0 },
+		}];
+		
+	} else if (aggregationType === 'summary') {
+		// 創建摘要統計
+		const summary: any = {
+			totalItems: items.length,
+			successfulItems: items.filter(item => !item.json || !(item.json as any).error).length,
+			failedItems: items.filter(item => item.json && (item.json as any).error).length,
+			aggregationType: 'summary',
+		};
+		
+		// 統計回應狀態碼
+		const statusCodes: Record<number, number> = {};
+		const errors: string[] = [];
+		
+		for (const item of items) {
+			if (item.json) {
+				const json = item.json as any;
+				if (json.error) {
+					errors.push(json.error);
+				}
+				if (json.statusCode) {
+					statusCodes[json.statusCode] = (statusCodes[json.statusCode] || 0) + 1;
+				}
+			}
+		}
+		
+		summary.statusCodeDistribution = statusCodes;
+		if (errors.length > 0) {
+			summary.errors = errors;
+		}
+		
+		if (includeMetadata) {
+			summary._metadata = {
+				aggregationType: 'summary',
+				generatedAt: new Date().toISOString(),
+			};
+		}
+		
+		return [{
+			json: summary,
+			pairedItem: { item: 0 },
+		}];
+	}
+	
+	// 預設返回原始項目
+	return items;
+}
+
+// 深度合併輔助函數
+function deepMerge(target: any, source: any): any {
+	for (const key in source) {
+		if (source.hasOwnProperty(key)) {
+			if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+				if (!target[key] || typeof target[key] !== 'object') {
+					target[key] = {};
+				}
+				deepMerge(target[key], source[key]);
+			} else {
+				target[key] = source[key];
+			}
+		}
+	}
+	return target;
 }
 
 // 處理分頁的輔助函數，與 HttpRequestV3 相容
@@ -2048,4 +2192,393 @@ async function executeHttpRequest(
 		
 		throw new NodeOperationError(executeFunctions.getNode(), errorMessage, { itemIndex });
 	}
+}
+
+// 條件式重定向輔助函數
+export function shouldApplyRedirectCondition(
+	condition: {
+		type: 'statusCode' | 'header' | 'url';
+		operator: 'equals' | 'contains' | 'startsWith' | 'endsWith' | 'regex';
+		value: string;
+		action: 'follow' | 'stop' | 'custom';
+		customUrl?: string;
+	},
+	responseDetails: any
+): boolean {
+	const { type, operator, value } = condition;
+	
+	let targetValue: string;
+	
+	switch (type) {
+		case 'statusCode':
+			targetValue = String(responseDetails.statusCode || '');
+			break;
+		case 'header':
+			// 假設 value 格式為 "header-name:expected-value"
+			const [headerName, expectedValue] = value.split(':');
+			if (!headerName || !expectedValue) return false;
+			targetValue = String(responseDetails.headers?.[headerName.toLowerCase()] || '');
+			// 更新比較值為期望值
+			return evaluateCondition(targetValue, operator, expectedValue);
+		case 'url':
+			targetValue = String(responseDetails.url || '');
+			break;
+		default:
+			return false;
+	}
+	
+	return evaluateCondition(targetValue, operator, value);
+}
+
+// 條件評估輔助函數
+export function evaluateCondition(targetValue: string, operator: string, expectedValue: string): boolean {
+	switch (operator) {
+		case 'equals':
+			return targetValue === expectedValue;
+		case 'contains':
+			return targetValue.includes(expectedValue);
+		case 'startsWith':
+			return targetValue.startsWith(expectedValue);
+		case 'endsWith':
+			return targetValue.endsWith(expectedValue);
+		case 'regex':
+			try {
+				const regex = new RegExp(expectedValue);
+				return regex.test(targetValue);
+			} catch (_error) {
+				console.warn(`Invalid regex pattern: ${expectedValue}`);
+				return false;
+			}
+		default:
+			return false;
+	}
+}
+
+// cURL 匯入增強功能
+export function parseCurlCommand(curlCommand: string): {
+	url: string;
+	method: string;
+	headers: Record<string, string>;
+	body?: string;
+	queryParams: Record<string, string>;
+	proxySettings?: {
+		proxyUrl: string;
+		proxyAuth?: boolean;
+		proxyUsername?: string;
+		proxyPassword?: string;
+	};
+	authSettings?: {
+		type: 'basic' | 'bearer' | 'custom';
+		username?: string;
+		password?: string;
+		token?: string;
+		customHeaders?: Record<string, string>;
+	};
+	options: {
+		followRedirects?: boolean;
+		maxRedirects?: number;
+		timeout?: number;
+		allowUnauthorizedCerts?: boolean;
+	};
+} {
+	const result: {
+		url: string;
+		method: string;
+		headers: Record<string, string>;
+		body?: string;
+		queryParams: Record<string, string>;
+		proxySettings?: {
+			proxyUrl: string;
+			proxyAuth?: boolean;
+			proxyUsername?: string;
+			proxyPassword?: string;
+		};
+		authSettings?: {
+			type: 'basic' | 'bearer' | 'custom';
+			username?: string;
+			password?: string;
+			token?: string;
+			customHeaders?: Record<string, string>;
+		};
+		options: {
+			followRedirects?: boolean;
+			maxRedirects?: number;
+			timeout?: number;
+			allowUnauthorizedCerts?: boolean;
+		};
+	} = {
+		url: '',
+		method: 'GET',
+		headers: {},
+		queryParams: {},
+		options: {},
+	};
+
+	// 移除 curl 命令前綴
+	let command = curlCommand.trim();
+	if (command.startsWith('curl ')) {
+		command = command.substring(5);
+	}
+
+	// 解析參數
+	const args = parseCurlArguments(command);
+	
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		
+		switch (arg) {
+			case '-X':
+			case '--request':
+				if (i + 1 < args.length) {
+					result.method = args[++i].toUpperCase();
+				}
+				break;
+				
+			case '-H':
+			case '--header':
+				if (i + 1 < args.length) {
+					const header = args[++i];
+					const colonIndex = header.indexOf(':');
+					if (colonIndex > 0) {
+						const key = header.substring(0, colonIndex).trim();
+						const value = header.substring(colonIndex + 1).trim();
+						result.headers[key] = value;
+						
+						// 檢測認證標頭
+						if (key.toLowerCase() === 'authorization') {
+							if (value.startsWith('Bearer ')) {
+								result.authSettings = {
+									type: 'bearer',
+									token: value.substring(7),
+								};
+							} else if (value.startsWith('Basic ')) {
+								try {
+									const decoded = Buffer.from(value.substring(6), 'base64').toString();
+									const [username, password] = decoded.split(':');
+									result.authSettings = {
+										type: 'basic',
+										username,
+										password,
+									};
+								} catch (_error) {
+									// 保留原始標頭
+								}
+							}
+						}
+					}
+				}
+				break;
+				
+			case '-d':
+			case '--data':
+			case '--data-raw':
+				if (i + 1 < args.length) {
+					result.body = args[++i];
+					if (result.method === 'GET') {
+						result.method = 'POST';
+					}
+				}
+				break;
+				
+			case '-u':
+			case '--user':
+				if (i + 1 < args.length) {
+					const userPass = args[++i];
+					const colonIndex = userPass.indexOf(':');
+					if (colonIndex > 0) {
+						result.authSettings = {
+							type: 'basic',
+							username: userPass.substring(0, colonIndex),
+							password: userPass.substring(colonIndex + 1),
+						};
+					}
+				}
+				break;
+				
+			case '--proxy':
+				if (i + 1 < args.length) {
+					result.proxySettings = {
+						proxyUrl: args[++i],
+					};
+				}
+				break;
+				
+			case '--proxy-user':
+				if (i + 1 < args.length) {
+					const userPass = args[++i];
+					const colonIndex = userPass.indexOf(':');
+					if (colonIndex > 0) {
+						if (!result.proxySettings) {
+							result.proxySettings = { proxyUrl: '' };
+						}
+						result.proxySettings.proxyAuth = true;
+						result.proxySettings.proxyUsername = userPass.substring(0, colonIndex);
+						result.proxySettings.proxyPassword = userPass.substring(colonIndex + 1);
+					}
+				}
+				break;
+				
+			case '-L':
+			case '--location':
+				result.options.followRedirects = true;
+				break;
+				
+			case '--max-redirs':
+				if (i + 1 < args.length) {
+					result.options.maxRedirects = parseInt(args[++i], 10);
+				}
+				break;
+				
+			case '--connect-timeout':
+			case '--max-time':
+				if (i + 1 < args.length) {
+					result.options.timeout = parseInt(args[++i], 10) * 1000; // 轉換為毫秒
+				}
+				break;
+				
+			case '-k':
+			case '--insecure':
+				result.options.allowUnauthorizedCerts = true;
+				break;
+				
+			default:
+				// 如果不是選項且包含 http，可能是 URL
+				if (!arg.startsWith('-') && (arg.includes('http://') || arg.includes('https://'))) {
+					try {
+						const url = new URL(arg);
+						result.url = `${url.protocol}//${url.host}${url.pathname}`;
+						
+						// 解析查詢參數
+						url.searchParams.forEach((value, key) => {
+							result.queryParams[key] = value;
+						});
+					} catch (_error) {
+						// 如果 URL 解析失敗，直接使用原始字串
+						result.url = arg;
+					}
+				}
+				break;
+		}
+	}
+
+	return result;
+}
+
+// 解析 cURL 參數的輔助函數
+export function parseCurlArguments(command: string): string[] {
+	const args: string[] = [];
+	let current = '';
+	let inQuotes = false;
+	let quoteChar = '';
+	let escaped = false;
+
+	for (let i = 0; i < command.length; i++) {
+		const char = command[i];
+
+		if (escaped) {
+			current += char;
+			escaped = false;
+			continue;
+		}
+
+		if (char === '\\') {
+			escaped = true;
+			continue;
+		}
+
+		if (!inQuotes && (char === '"' || char === "'")) {
+			inQuotes = true;
+			quoteChar = char;
+			continue;
+		}
+
+		if (inQuotes && char === quoteChar) {
+			inQuotes = false;
+			quoteChar = '';
+			continue;
+		}
+
+		if (!inQuotes && char === ' ') {
+			if (current.trim()) {
+				args.push(current.trim());
+				current = '';
+			}
+			continue;
+		}
+
+		current += char;
+	}
+
+	if (current.trim()) {
+		args.push(current.trim());
+	}
+
+	return args;
+}
+
+// 將解析的 cURL 資料轉換為節點參數
+export function curlToNodeParameters(curlData: ReturnType<typeof parseCurlCommand>): Record<string, any> {
+	const nodeParams: Record<string, any> = {
+		method: curlData.method,
+		url: curlData.url,
+		sendQuery: Object.keys(curlData.queryParams).length > 0,
+		sendHeaders: Object.keys(curlData.headers).length > 0,
+		sendBody: !!curlData.body,
+		options: {
+			...curlData.options,
+		},
+	};
+
+	// 設置查詢參數
+	if (nodeParams.sendQuery) {
+		nodeParams.specifyQuery = 'keypair';
+		nodeParams.queryParameters = {
+			parameters: Object.entries(curlData.queryParams).map(([name, value]) => ({
+				name,
+				value,
+			})),
+		};
+	}
+
+	// 設置標頭
+	if (nodeParams.sendHeaders) {
+		nodeParams.specifyHeaders = 'keypair';
+		nodeParams.headerParameters = {
+			parameters: Object.entries(curlData.headers).map(([name, value]) => ({
+				name,
+				value,
+			})),
+		};
+	}
+
+	// 設置請求體
+	if (nodeParams.sendBody) {
+		nodeParams.contentType = 'raw';
+		nodeParams.rawContentType = 'text';
+		nodeParams.body = curlData.body;
+	}
+
+	// 設置代理
+	if (curlData.proxySettings) {
+		nodeParams.options.proxy = {
+			settings: curlData.proxySettings,
+		};
+	}
+
+	// 設置認證
+	if (curlData.authSettings) {
+		nodeParams.authentication = curlData.authSettings.type;
+		if (curlData.authSettings.type === 'basic') {
+			nodeParams.basicAuth = {
+				user: curlData.authSettings.username,
+				password: curlData.authSettings.password,
+			};
+		} else if (curlData.authSettings.type === 'bearer') {
+			nodeParams.bearerTokenAuth = {
+				token: curlData.authSettings.token,
+			};
+		}
+	}
+
+	return nodeParams;
 }
